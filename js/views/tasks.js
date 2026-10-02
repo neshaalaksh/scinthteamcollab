@@ -165,8 +165,17 @@ function renderList(body, list) {
 }
 
 async function createTask(fields) {
+  // Show the card right away; swap in the saved copy (or drop it) when the server answers.
+  const temp = {
+    id: `tmp-${Date.now()}`, status: 'todo', checklist: [], comments: [], assignee: '', due: '', priority: '', space: '',
+    description: '', createdAt: new Date().toISOString(), createdBy: S.me.email, ...fields,
+  };
+  S.tasks.push(temp);
+  renderBody();
   const saved = await act('tasks.save', { fields });
-  if (saved) { S.tasks.push(saved); renderBody(); }
+  const i = S.tasks.indexOf(temp);
+  if (i >= 0) { if (saved) S.tasks[i] = saved; else S.tasks.splice(i, 1); }
+  renderBody();
   return saved;
 }
 
@@ -178,6 +187,7 @@ function replaceTask(saved) {
 
 // Task detail side panel. Pass an id, or null for a new task.
 export function openTask(id, onClose) {
+  if (String(id).startsWith('tmp-')) return; // still saving
   const task = id ? S.tasks.find((t) => t.id === id) : null;
   if (id && !task) return toast('That task is gone. It may have been deleted.', 'error');
   const isNew = !task;
@@ -295,8 +305,12 @@ export function openTask(id, onClose) {
     if (completeBtn) completeBtn.onclick = async () => {
       const status = isDone(draft) ? CONFIG.statuses[0].id : DONE;
       panel.close();
+      const live = S.tasks.find((x) => x.id === task.id);
+      const before = live && { ...live };
+      if (live) { live.status = status; renderBody(); }
       const saved = await act('tasks.save', { id: task.id, fields: { status } });
       if (saved) { replaceTask(saved); toast(status === DONE ? 'Marked complete' : 'Reopened'); }
+      else if (live) { Object.assign(live, before); renderBody(); }
     };
     const del = $('[data-delete]', panel);
     if (del) del.onclick = async () => {

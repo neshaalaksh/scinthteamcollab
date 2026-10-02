@@ -28,12 +28,21 @@ export function setSpace(id) {
 }
 
 // Runs an API call, showing the error as a toast. Returns null on failure.
+let pending = 0;
+function setSaving(on) {
+  pending += on ? 1 : -1;
+  document.body.classList.toggle('saving', pending > 0);
+}
+
 export async function act(action, data) {
+  setSaving(true);
   try {
     return await call(action, data);
   } catch (err) {
     if (err.code !== 'AUTH') toast(err.message, 'error');
     return null;
+  } finally {
+    setSaving(false);
   }
 }
 

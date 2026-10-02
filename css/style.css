@@ -424,3 +424,7 @@ legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
 /* editor text matches the rest of the app */
 .toastui-editor-contents, .toastui-editor-contents p, .toastui-editor-contents li { font-family: var(--font); font-size: 15px; }
 .toastui-editor-contents h1, .toastui-editor-contents h2, .toastui-editor-contents h3 { font-family: var(--display); border-bottom: 0; }
+
+/* shows while anything is saving, so a click always gets instant feedback */
+body::after { content: 'Saving…'; position: fixed; top: 12px; right: 16px; background: var(--ink); color: var(--bg); padding: 6px 12px; border-radius: 999px; font-size: 13px; opacity: 0; transform: translateY(-6px); transition: opacity 0.15s, transform 0.15s; pointer-events: none; z-index: 120; }
+body.saving::after { opacity: 0.92; transform: none; }
