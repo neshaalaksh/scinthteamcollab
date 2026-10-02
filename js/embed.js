@@ -70,12 +70,13 @@ function embed(kind, label, src, openUrl, shape = 'tall') {
   return { kind, label, src, openUrl, shape };
 }
 
+// height: pixels, or 'fill' to let the page decide (Sheets hub).
 export function embedHtml(info, height) {
   const h = height || (info.kind === 'sheet' ? 520 : 440);
-  const style = info.shape === 'video' ? '' : `style="height:${h}px"`;
-  return `<figure class="embed embed-${info.kind} ${info.shape}">
+  const style = info.shape === 'video' || height === 'fill' ? '' : `style="height:${h}px"`;
+  return `<figure class="embed embed-${info.kind} ${info.shape} ${height === 'fill' ? 'fill' : ''}">
     <figcaption>
-      <span class="embed-kind">${info.label}</span>
+      <span class="embed-kind">${info.label}</span><span class="grow"></span>
       <a href="${escAttr(info.openUrl)}" target="_blank" rel="noopener">Open ↗</a>
     </figcaption>
     <div class="embed-frame" ${style}>

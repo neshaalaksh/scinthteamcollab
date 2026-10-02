@@ -1,16 +1,19 @@
-import { store, loadSettings } from './store.js';
-import { CONFIG } from './config.js';
-import { get } from './data.js';
-import { $, $$, esc, avatar, toast, isModalOpen } from './util.js';
+import { CONFIG, isDemo } from './config.js';
+import { call, getSession, setSession, signOut, sessionFromCredential, setAuthLostHandler, lastRev } from './api.js';
+import { S, loadAll, setSpace, can } from './state.js';
+import { DEMO_PEOPLE, resetDemo } from './demo.js';
+import { $, $$, esc, avatar, isModalOpen, toast } from './util.js';
 import home from './views/home.js';
 import tasks from './views/tasks.js';
+import calendar from './views/calendar.js';
 import daily from './views/daily.js';
+import history from './views/history.js';
 import docs from './views/docs.js';
 import sheets from './views/sheets.js';
-import settings from './views/settings.js';
+import team from './views/team.js';
 
-const views = { home, tasks, daily, docs, sheets, settings };
-let current = null; // { view, params }
+const views = { home, tasks, calendar, daily, history, docs, sheets, team };
+let current = null;
 
 function parseHash() {
   const [name = 'home', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
@@ -18,95 +21,139 @@ function parseHash() {
 }
 
 export async function render() {
+  if (!S.me) return;
   const { name, params } = parseHash();
   const view = views[name];
-  current = { view, params, name };
-  $$('[data-nav]').forEach((a) => a.classList.toggle('active', a.dataset.nav === name));
+  if (current?.view !== view) current?.view.leave?.();
+  current = { view, name, params };
+  $$('[data-nav]').forEach((a) => {
+    a.classList.toggle('active', a.dataset.nav === name);
+    a.setAttribute('aria-current', a.dataset.nav === name ? 'page' : 'false');
+  });
   $('#sidebar').classList.remove('open');
-  const el = $('#view');
   $('#page-title').textContent = view.title;
+  $('#topbar-slot').innerHTML = '';
   try {
-    await view.render(el, params);
+    await view.render($('#view'), params);
   } catch (err) {
     console.error(err);
-    el.innerHTML = `<div class="empty error-box">
-      <h2>Couldn't load data</h2><p>${esc(err.message)}</p>
-      <p><a class="btn" href="#/settings">Check settings</a></p></div>`;
-  }
-  renderSidebarLists();
-}
-
-async function renderSidebarLists() {
-  try {
-    const [docList, sheetList] = await Promise.all([get('docs'), get('sheets')]);
-    const { name, params } = parseHash();
-    const pinnedDocs = docList.filter((d) => d.pinned).sort((a, b) => a.title.localeCompare(b.title));
-    $('#nav-docs').innerHTML = pinnedDocs.map((d) =>
-      `<a href="#/docs/${d.id}" class="${name === 'docs' && params[0] === d.id ? 'active' : ''}">${esc(d.icon || '📄')} ${esc(d.title || 'Untitled')}</a>`).join('');
-    $('#nav-sheets').innerHTML = sheetList.map((s) =>
-      `<a href="#/sheets/${s.id}" class="${name === 'sheets' && params[0] === s.id ? 'active' : ''}">▦ ${esc(s.name)}</a>`).join('');
-  } catch { /* shown in main view */ }
-}
-
-function setSync(state, text) {
-  const el = $('#sync');
-  el.dataset.state = state;
-  $('.sync-text', el).textContent = text;
-}
-
-function describeBackend() {
-  return store.isShared() ? `Synced · ${store.backend.label}` : 'Browser only (not shared)';
-}
-
-store.onChange((e) => {
-  if (e.type === 'saving') setSync('busy', 'Saving…');
-  if (e.type === 'idle' && store.pending === 0) setSync(store.isShared() ? 'ok' : 'local', describeBackend());
-  if (e.type === 'error') {
-    setSync('error', 'Save failed');
-    toast(e.error.message, 'error');
-  }
-  if (e.type === 'saved') renderSidebarLists();
-});
-
-// Views can set `busy()` to say "don't re-render me right now" (e.g. mid-edit).
-async function pull({ manual = false } = {}) {
-  if (store.pending) return;
-  try {
-    setSync('busy', 'Refreshing…');
-    const changed = await store.refreshAll();
-    setSync(store.isShared() ? 'ok' : 'local', describeBackend());
-    const busy = isModalOpen() || current?.view.busy?.() || document.activeElement?.matches('input, textarea, select');
-    if (changed.length && !busy) await render();
-    else if (manual) await render();
-    if (manual) toast(changed.length ? 'Pulled latest changes' : 'Already up to date');
-  } catch (err) {
-    setSync('error', 'Offline?');
-    if (manual) toast(err.message, 'error');
+    $('#view').innerHTML = `<div class="empty"><h2>Something went wrong</h2><p>${esc(err.message)}</p></div>`;
   }
 }
 
-export async function boot() {
-  store.settings = loadSettings();
-  store.init();
+function renderChrome() {
   document.title = CONFIG.workspaceName;
   $('#workspace-name').textContent = CONFIG.workspaceName;
-  setSync(store.isShared() ? 'ok' : 'local', describeBackend());
-  try {
-    const me = await store.whoami();
-    $('#me-chip').innerHTML = avatar(me, 30);
-  } catch (err) {
-    $('#me-chip').innerHTML = '';
-    setSync('error', 'Not connected');
-    if (location.hash !== '#/settings') location.hash = '#/settings';
-    toast(err.message, 'error');
+  const select = $('#space-select');
+  select.innerHTML = `<option value="all">All spaces</option>${S.spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}`;
+  select.value = S.space;
+  $$('[data-admin]').forEach((el) => { el.hidden = !can.admin(); });
+  const roleLabel = { owner: 'Owner', admin: 'Admin', member: 'Member', guest: 'Guest' }[S.me.role];
+  $('#me').innerHTML = `
+    ${avatar(S.me, 32)}
+    <div class="me-text"><b>${esc(S.me.name)}</b><span>${roleLabel}${isDemo() ? ' · demo' : ''}</span></div>
+    <button class="icon-btn small" id="sign-out" title="Sign out" aria-label="Sign out">⎋</button>`;
+  $('#sign-out').onclick = () => { signOut(); location.reload(); };
+}
+
+$('#space-select').addEventListener('change', (e) => { setSpace(e.target.value); render(); });
+$('#menu-btn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
+window.addEventListener('hashchange', render);
+
+// ---- sign-in
+
+function showLogin(message = '') {
+  S.me = null;
+  $('#app').hidden = true;
+  const box = $('#login');
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="login-card">
+      <span class="logo big" aria-hidden="true">S</span>
+      <h1>${esc(CONFIG.workspaceName)}</h1>
+      ${message ? `<p class="login-msg">${esc(message)}</p>` : ''}
+      ${isDemo() ? `
+        <p>Demo mode: nothing is shared yet. Pick who to be, to see what each role can do.</p>
+        <div class="demo-people">
+          ${DEMO_PEOPLE.map((p) => `<button class="btn" data-demo="${esc(p.email)}"><b>${esc(p.name)}</b><span>${p.role[0].toUpperCase() + p.role.slice(1)}</span></button>`).join('')}
+        </div>
+        <button class="link-btn" id="demo-reset">Reset demo data</button>
+        <p class="muted small">To go live, follow SETUP.md in the repo.</p>
+      ` : `
+        <p>Sign in with your work Google account.</p>
+        <div id="gsi-button"></div>
+      `}
+    </div>`;
+  if (isDemo()) {
+    $$('[data-demo]', box).forEach((b) => b.onclick = () => {
+      const p = DEMO_PEOPLE.find((x) => x.email === b.dataset.demo);
+      setSession({ mode: 'demo', email: p.email, name: p.name });
+      start();
+    });
+    $('#demo-reset').onclick = () => { resetDemo(); toast('Demo data reset'); };
+  } else {
+    withGoogle(() => {
+      window.google.accounts.id.renderButton($('#gsi-button'), { theme: 'outline', size: 'large', shape: 'pill', text: 'signin_with' });
+      window.google.accounts.id.prompt();
+    });
   }
+}
+
+function withGoogle(fn) {
+  const ready = () => {
+    window.google.accounts.id.initialize({
+      client_id: CONFIG.googleClientId,
+      auto_select: true,
+      callback: (resp) => { setSession(sessionFromCredential(resp.credential)); start(); },
+    });
+    fn();
+  };
+  if (window.google?.accounts?.id) return ready();
+  const s = document.createElement('script');
+  s.src = 'https://accounts.google.com/gsi/client';
+  s.async = true;
+  s.onload = ready;
+  s.onerror = () => toast("Couldn't load Google sign-in. Check your internet.", 'error');
+  document.head.append(s);
+}
+
+setAuthLostHandler(() => showLogin('Your sign-in expired. Please sign in again.'));
+
+async function start() {
+  if (!getSession()) return showLogin();
+  $('#login').hidden = true;
+  $('#app').hidden = false;
+  $('#view').innerHTML = '<div class="loading">Loading…</div>';
+  try {
+    await loadAll();
+  } catch (err) {
+    if (err.code === 'AUTH') return;
+    signOut();
+    return showLogin(err.message);
+  }
+  renderChrome();
   await render();
 }
 
-window.addEventListener('hashchange', render);
-$('#refresh-btn').addEventListener('click', () => pull({ manual: true }));
-$('#menu-btn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
-document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
-setInterval(() => { if (!document.hidden) pull(); }, CONFIG.refreshSeconds * 1000);
+// ---- keep in sync with teammates
 
-boot();
+let polling = false;
+async function poll() {
+  if (polling || !S.me || document.hidden) return;
+  polling = true;
+  try {
+    const before = lastRev;
+    await call('ping');
+    if (lastRev !== before) {
+      await loadAll();
+      renderChrome();
+      const busy = isModalOpen() || current?.view.busy?.() || document.activeElement?.matches('input, textarea, select, [contenteditable]');
+      if (!busy) await render();
+    }
+  } catch { /* offline: try again next time */ }
+  polling = false;
+}
+setInterval(poll, CONFIG.pollSeconds * 1000);
+document.addEventListener('visibilitychange', poll);
+
+start();

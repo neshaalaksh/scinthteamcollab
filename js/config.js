@@ -1,37 +1,31 @@
-// Customise your workspace here. Everything in this file is safe to commit
-// (never put a token in here, each person enters their own in Settings).
+// Customise your workspace here. Everything in this file is safe to commit.
 
 export const CONFIG = {
   workspaceName: 'Scinth Team',
 
-  // Where the shared data lives. Leave owner/repo empty to start in
-  // "browser only" mode, then fill these in so teammates are pre-configured.
-  storage: {
-    owner: '',        // GitHub user or org that owns the data repo
-    repo: '',         // e.g. 'scinthteamcollab-data' (can be private)
-    branch: 'main',
-    path: 'data',     // folder inside the repo for the JSON files
-  },
+  // From the setup guide (SETUP.md). Leave either empty to run in demo mode.
+  appsScriptUrl: '',   // https://script.google.com/macros/s/…/exec
+  googleClientId: '',  // …apps.googleusercontent.com
 
-  // Task board columns, in order. Rename, add or remove freely.
-  // Keep one column with done: true so the app knows what "finished" means.
+  // Task board columns, in order. Rename, recolour, add or remove freely,
+  // but keep the one with id 'done': it is what counts as "completed".
   statuses: [
-    { id: 'todo', label: 'To Do', color: '#8b93a7' },
-    { id: 'doing', label: 'In Progress', color: '#3b82f6' },
-    { id: 'review', label: 'Review', color: '#a855f7' },
-    { id: 'done', label: 'Done', color: '#22c55e', done: true },
+    { id: 'todo', label: 'To Do', color: '#8B8C96' },
+    { id: 'doing', label: 'In Progress', color: '#2563EB' },
+    { id: 'review', label: 'Review', color: '#B45309' },
+    { id: 'done', label: 'Done', color: '#15803D' },
   ],
 
   priorities: [
-    { id: 'urgent', label: 'Urgent', color: '#ef4444' },
-    { id: 'high', label: 'High', color: '#f97316' },
-    { id: 'normal', label: 'Normal', color: '#3b82f6' },
-    { id: 'low', label: 'Low', color: '#8b93a7' },
+    { id: 'urgent', label: 'Urgent', bg: '#FEE2E2', fg: '#991B1B' },
+    { id: 'high', label: 'High', bg: '#FFEDD5', fg: '#9A3412' },
+    { id: 'normal', label: 'Normal', bg: '#DBEAFE', fg: '#1E3A8A' },
+    { id: 'low', label: 'Low', bg: '#ECEDF0', fg: '#3F404A' },
   ],
 
-  // Pre-filled text for the daily update box.
-  dailyUpdateTemplate: '**Yesterday:** \n**Today:** \n**Blockers:** ',
-
-  // How often (seconds) to pull teammates' changes while the tab is open.
-  refreshSeconds: 60,
+  // How often (seconds) to check for teammates' changes while the tab is open.
+  pollSeconds: 30,
 };
+
+export const DONE = 'done';
+export const isDemo = () => !CONFIG.appsScriptUrl || !CONFIG.googleClientId;

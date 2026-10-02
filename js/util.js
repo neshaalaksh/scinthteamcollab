@@ -28,9 +28,32 @@ export function addDays(iso, n) {
   return isoDate(d);
 }
 
+// Start of a local day, as an ISO timestamp (for comparing with stored times).
+export function dayStartIso(iso) {
+  return parseDate(iso).toISOString();
+}
+
 export function fmtDate(iso, opts = { month: 'short', day: 'numeric' }) {
   if (!iso) return '';
-  return parseDate(iso).toLocaleDateString(undefined, opts);
+  return parseDate(iso.slice(0, 10)).toLocaleDateString(undefined, opts);
+}
+
+export function fmtDay(iso) {
+  const today = isoDate();
+  if (iso === today) return 'Today';
+  if (iso === addDays(today, -1)) return 'Yesterday';
+  if (iso === addDays(today, 1)) return 'Tomorrow';
+  return parseDate(iso).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+export function fmtTime(ts) {
+  return ts ? new Date(ts).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }) : '';
+}
+
+export function fmtStamp(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return `${fmtDay(isoDate(d))}, ${fmtTime(ts)}`;
 }
 
 export function timeAgo(ts) {
@@ -43,12 +66,12 @@ export function timeAgo(ts) {
   return new Date(ts).toLocaleDateString();
 }
 
-export function dueClass(iso) {
-  if (!iso) return '';
+export function dueLabel(iso) {
+  if (!iso) return { text: '', cls: '' };
   const today = isoDate();
-  if (iso < today) return 'overdue';
-  if (iso === today) return 'due-today';
-  return '';
+  if (iso < today) return { text: `Overdue · ${fmtDate(iso)}`, cls: 'overdue' };
+  if (iso === today) return { text: 'Today', cls: 'due-today' };
+  return { text: fmtDate(iso), cls: '' };
 }
 
 function hue(str) {
@@ -57,48 +80,74 @@ function hue(str) {
   return h;
 }
 
-export function avatar(person, size = 24) {
+export function initials(name) {
+  return String(name || '?').split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('') || '?';
+}
+
+export function avatar(person, size = 26) {
   if (!person) return '';
-  const name = person.name || person.login;
-  const initials = name.split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('');
-  return `<span class="avatar" title="${esc(name)}" style="--av:${hue(person.login)};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.42)}px">${esc(initials)}</span>`;
+  return `<span class="avatar" title="${esc(person.name)}" style="--h:${hue(person.email)};width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px">${esc(initials(person.name))}</span>`;
 }
 
 export function toast(message, kind = 'info') {
   const el = document.createElement('div');
   el.className = `toast ${kind}`;
+  el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   el.textContent = message;
   $('#toasts').append(el);
-  setTimeout(() => el.classList.add('out'), kind === 'error' ? 6000 : 2500);
-  setTimeout(() => el.remove(), kind === 'error' ? 6400 : 2900);
+  const life = kind === 'error' ? 6000 : 2500;
+  setTimeout(() => el.classList.add('out'), life);
+  setTimeout(() => el.remove(), life + 400);
 }
 
-// Opens a modal. `html` is the body; returns the modal element.
-// Resolves `closed` when dismissed.
-export function openModal(html, { wide = false } = {}) {
+// Opens a modal or side panel. Returns the panel element, which has .close().
+export function openModal(html, { panel = false, wide = false, onClose } = {}) {
   const wrap = document.createElement('div');
-  wrap.className = 'modal-backdrop';
-  wrap.innerHTML = `<div class="modal ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div>`;
+  wrap.className = `backdrop ${panel ? 'as-panel' : ''}`;
+  wrap.innerHTML = `<div class="${panel ? 'panel' : 'modal'} ${wide ? 'wide' : ''}" role="dialog" aria-modal="true">${html}</div>`;
   document.body.append(wrap);
-  const modal = $('.modal', wrap);
+  const box = wrap.firstElementChild;
   const close = () => {
+    if (!wrap.isConnected) return;
     wrap.remove();
     document.removeEventListener('keydown', onKey);
-    modal.dispatchEvent(new Event('closed'));
+    onClose?.();
   };
-  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  const onKey = (e) => { if (e.key === 'Escape' && document.activeElement?.tagName !== 'TEXTAREA') close(); };
   document.addEventListener('keydown', onKey);
   wrap.addEventListener('mousedown', (e) => { if (e.target === wrap) close(); });
-  modal.close = close;
-  $$('[data-close]', modal).forEach((b) => b.addEventListener('click', close));
-  setTimeout(() => $('input, textarea, select', modal)?.focus(), 0);
-  return modal;
+  box.close = close;
+  $$('[data-close]', box).forEach((b) => b.addEventListener('click', close));
+  setTimeout(() => $('[autofocus], input:not([type=checkbox]), textarea, select', box)?.focus(), 0);
+  return box;
 }
 
-export function isModalOpen() {
-  return !!$('.modal-backdrop');
+export const isModalOpen = () => !!$('.backdrop');
+
+// In-page confirm (the browser's confirm() is easy to miss).
+export function confirmBox(message, { ok = 'Delete', danger = true } = {}) {
+  return new Promise((resolve) => {
+    let answered = false;
+    const box = openModal(`
+      <div class="confirm">
+        <p>${esc(message)}</p>
+        <div class="row end">
+          <button class="btn" data-close>Cancel</button>
+          <button class="btn ${danger ? 'danger' : 'primary'}" data-ok>${esc(ok)}</button>
+        </div>
+      </div>`, { onClose: () => { if (!answered) resolve(false); } });
+    $('[data-ok]', box).onclick = () => { answered = true; box.close(); resolve(true); };
+  });
 }
 
-export function formData(form) {
-  return Object.fromEntries(new FormData(form).entries());
+export function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+export function lsGet(key, fallback) {
+  try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; }
+}
+export function lsSet(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* ignore */ }
 }
