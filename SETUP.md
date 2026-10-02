@@ -59,7 +59,7 @@ Back in Apps Script:
 ## Step 5: Turn on GitHub Pages (2 min)
 
 - [ ] In the repo on GitHub: **Settings → Pages**.
-- [ ] Source: **Deploy from a branch** → branch **main**, folder **/ (root)** → **Save**.
+- [ ] Source: **Deploy from a branch** → branch **claude/quirky-ritchie-l8wm1o**, folder **/ (root)** → **Save**.
 - [ ] After about a minute your site is at `https://neshaalaksh.github.io/scinthteamcollab/`.
 
 > GitHub Pages is free for **public** repos. A private repo needs a paid GitHub plan.
