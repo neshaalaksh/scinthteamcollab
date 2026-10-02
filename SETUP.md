@@ -24,7 +24,7 @@ Until you finish, the site runs in **demo mode**: fake data that stays in your o
   - If you use personal Gmail accounts: pick **External**, then **Publish app**. This only asks for name and email, so Google doesn't need to review it.
 - [ ] Open **APIs & Services → Credentials → Create credentials → OAuth client ID**.
   - Application type: **Web application**
-  - Authorized JavaScript origins: add `https://neshaalaksh.github.io`
+  - Authorized JavaScript origins: add `https://workspace.scinth.co`
     (also add `http://localhost:8000` if you want to test on your computer)
 - [ ] Copy the **Client ID**. It ends in `.apps.googleusercontent.com`.
 
@@ -60,7 +60,9 @@ Back in Apps Script:
 
 - [ ] In the repo on GitHub: **Settings → Pages**.
 - [ ] Source: **Deploy from a branch** → branch **claude/quirky-ritchie-l8wm1o**, folder **/ (root)** → **Save**.
-- [ ] After about a minute your site is at `https://neshaalaksh.github.io/scinthteamcollab/`.
+- [ ] Under **Custom domain**, enter `workspace.scinth.co` and save. (The `CNAME` file in this repo already holds it.)
+- [ ] At your DNS host for `scinth.co`, add a record: **CNAME**, name `workspace`, value `neshaalaksh.github.io`. On Cloudflare, set it to **DNS only**.
+- [ ] When GitHub's DNS check passes, tick **Enforce HTTPS**. Your site is then at `https://workspace.scinth.co`.
 
 > GitHub Pages is free for **public** repos. A private repo needs a paid GitHub plan.
 > Your data is safe either way: it lives in your Google Sheet, not in the repo.
