@@ -4,8 +4,8 @@ export const CONFIG = {
   workspaceName: 'Scinth Team',
 
   // From the setup guide (SETUP.md). Leave either empty to run in demo mode.
-  appsScriptUrl: '',   // https://script.google.com/macros/s/…/exec
-  googleClientId: '',  // …apps.googleusercontent.com
+  appsScriptUrl: 'https://script.google.com/macros/s/AKfycbzbP054bRd0GLSTG5ud57ZAxlEEcYKGsnGF2Xpyh-vPkW58Ql53mmdo9Xo379L4051Z/exec',   // https://script.google.com/macros/s/…/exec
+  googleClientId: '894888753095-aekfkp71trs1it91dsdird8vb903tkp9.apps.googleusercontent.com',  // …apps.googleusercontent.com
 
   // Task board columns, in order. Rename, recolour, add or remove freely,
   // but keep the one with id 'done': it is what counts as "completed".
