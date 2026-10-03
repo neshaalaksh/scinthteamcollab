@@ -1,5 +1,5 @@
 import { CONFIG, isDemo } from './config.js';
-import { call, getSession, setSession, signOut, sessionFromCredential, setAuthLostHandler, lastRev } from './api.js';
+import { call, initAuth, getSession, setSession, signOut, signInWithGoogle, setAuthLostHandler, setRole, watchChanges, lastRev } from './api.js';
 import { S, loadAll, setSpace, can } from './state.js';
 import { DEMO_PEOPLE, resetDemo } from './demo.js';
 import { $, $$, esc, avatar, isModalOpen, toast } from './util.js';
@@ -53,7 +53,7 @@ function renderChrome() {
     ${avatar(S.me, 32)}
     <div class="me-text"><b>${esc(S.me.name)}</b><span>${roleLabel}${isDemo() ? ' · demo' : ''}</span></div>
     <button class="icon-btn small" id="sign-out" title="Sign out" aria-label="Sign out">⎋</button>`;
-  $('#sign-out').onclick = () => { signOut(); location.reload(); };
+  $('#sign-out').onclick = async () => { await signOut(); location.reload(); };
 }
 
 $('#space-select').addEventListener('change', (e) => { setSpace(e.target.value); render(); });
@@ -104,7 +104,14 @@ function withGoogle(fn) {
     window.google.accounts.id.initialize({
       client_id: CONFIG.googleClientId,
       auto_select: true,
-      callback: (resp) => { setSession(sessionFromCredential(resp.credential)); start(); },
+      callback: async (resp) => {
+        try {
+          await signInWithGoogle(resp.credential);
+          start();
+        } catch (err) {
+          showLogin(err.message);
+        }
+      },
     });
     fn();
   };
@@ -120,6 +127,13 @@ function withGoogle(fn) {
 setAuthLostHandler(() => showLogin('Your sign-in expired. Please sign in again.'));
 
 async function start() {
+  try {
+    await initAuth();
+  } catch (err) {
+    $('#login').hidden = false;
+    $('#login').innerHTML = `<div class="login-card"><h1>${esc(CONFIG.workspaceName)}</h1><p class="login-msg">${esc(err.message)}</p></div>`;
+    return;
+  }
   if (!getSession()) return showLogin();
   $('#login').hidden = true;
   $('#app').hidden = false;
@@ -128,32 +142,52 @@ async function start() {
     await loadAll();
   } catch (err) {
     if (err.code === 'AUTH') return;
-    signOut();
+    await signOut();
     return showLogin(err.message);
   }
+  setRole(S.me.role);
   renderChrome();
+  watch();
   await render();
 }
 
 // ---- keep in sync with teammates
 
+// Reloads everything and redraws, unless the person is in the middle of typing.
+async function refresh() {
+  if (!S.me) return;
+  await loadAll();
+  setRole(S.me.role);
+  renderChrome();
+  const busy = isModalOpen() || current?.view.busy?.() || document.activeElement?.matches('input, textarea, select, [contenteditable]');
+  if (!busy) await render();
+}
+
 let polling = false;
+let live = false;
 async function poll() {
   if (polling || !S.me || document.hidden) return;
   polling = true;
   try {
-    const before = lastRev;
-    await call('ping');
-    if (lastRev !== before) {
-      await loadAll();
-      renderChrome();
-      const busy = isModalOpen() || current?.view.busy?.() || document.activeElement?.matches('input, textarea, select, [contenteditable]');
-      if (!busy) await render();
+    if (live) {
+      await refresh();   // back on the tab: catch up on anything missed while away
+    } else {
+      const before = lastRev;
+      await call('ping');
+      if (lastRev !== before) await refresh();
     }
   } catch { /* offline: try again next time */ }
   polling = false;
 }
-setInterval(poll, CONFIG.pollSeconds * 1000);
+
+// Live: the database tells us about teammates' changes. Demo: check every so often.
+let watching = false;
+function watch() {
+  if (watching) return;
+  watching = true;
+  live = watchChanges(() => { if (!document.hidden) refresh().catch(() => {}); });
+  if (!live) setInterval(poll, CONFIG.pollSeconds * 1000);
+}
 document.addEventListener('visibilitychange', poll);
 
 start();

@@ -1,37 +1,67 @@
-// Talks to the backend: the Apps Script web app, or the in-browser demo.
+// Talks to the backend: Supabase when configured, or the in-browser demo.
 // Also holds the signed-in session.
 
-import { CONFIG, isDemo } from './config.js';
+import { isDemo } from './config.js';
 import { demoCall } from './demo.js';
+import { connect, supabaseCall, onChanges } from './supabase.js';
 import { lsGet, lsSet } from './util.js';
 
-const SESSION_KEY = 'teamspace.session';
+const DEMO_KEY = 'teamspace.session';
 let onAuthLost = () => {};
+let session = null;      // { mode, email, name }
+let role = null;         // the signed-in person's role, once loaded
+let signingOut = false;
 
 export function setAuthLostHandler(fn) { onAuthLost = fn; }
+export function setRole(r) { role = r; }
 
-export function getSession() {
-  const s = lsGet(SESSION_KEY, null);
-  if (!s) return null;
-  if (isDemo() !== (s.mode === 'demo')) return null;
-  if (s.mode === 'google' && s.exp * 1000 < Date.now() + 60000) return null;
-  return s;
+const fromSupabase = (s) => (s?.user?.email
+  ? { mode: 'supabase', email: s.user.email.toLowerCase(), name: s.user.user_metadata?.full_name || s.user.user_metadata?.name || s.user.email }
+  : null);
+
+// Call once before anything else: restores a saved sign-in.
+let ready = null;
+export function initAuth() {
+  ready ??= (async () => {
+    if (isDemo()) {
+      const s = lsGet(DEMO_KEY, null);
+      session = s?.mode === 'demo' ? s : null;
+      return;
+    }
+    const sb = await connect();
+    const { data } = await sb.auth.getSession();
+    session = fromSupabase(data.session);
+    sb.auth.onAuthStateChange((event, s) => {
+      session = fromSupabase(s);
+      if (event === 'SIGNED_OUT' && !signingOut) onAuthLost();
+    });
+  })();
+  return ready;
 }
 
-export function setSession(s) { lsSet(SESSION_KEY, s); }
+export function getSession() { return session; }
 
-export function signOut() {
-  lsSet(SESSION_KEY, null);
+export function setSession(s) {   // demo mode only
+  session = s;
+  lsSet(DEMO_KEY, s);
+}
+
+// Swaps the Google sign-in token for a Supabase session.
+export async function signInWithGoogle(idToken) {
+  const sb = await connect();
+  const { data, error } = await sb.auth.signInWithIdToken({ provider: 'google', token: idToken });
+  if (error) throw Object.assign(new Error(`Sign-in didn't work: ${error.message}`), { code: 'AUTH' });
+  session = fromSupabase(data.session);
+}
+
+export async function signOut() {
+  signingOut = true;
   if (window.google?.accounts?.id) window.google.accounts.id.disableAutoSelect();
-}
-
-// Decodes the payload of a Google ID token (we only read email/name/exp;
-// the backend does the real verification).
-export function sessionFromCredential(jwt) {
-  const part = jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-  const json = decodeURIComponent(atob(part).split('').map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, '0')}`).join(''));
-  const p = JSON.parse(json);
-  return { mode: 'google', token: jwt, email: p.email, name: p.name, exp: p.exp };
+  if (isDemo()) setSession(null);
+  else {
+    session = null;
+    await (await connect()).auth.signOut().catch(() => {});
+  }
 }
 
 export let lastRev = 0;
@@ -42,25 +72,27 @@ export async function call(action, data = {}) {
     onAuthLost();
     throw Object.assign(new Error('Please sign in.'), { code: 'AUTH' });
   }
-  let res;
+  if (s.mode === 'demo') {
+    const res = await demoCall(s.email, action, data);
+    if (!res.ok) throw Object.assign(new Error(res.error), { code: res.code });
+    lastRev = res.rev;
+    return res.data;
+  }
   try {
-    if (s.mode === 'demo') {
-      res = await demoCall(s.email, action, data);
-    } else {
-      // No Content-Type header: keeps this a "simple" request Apps Script accepts.
-      const r = await fetch(CONFIG.appsScriptUrl, {
-        method: 'POST',
-        body: JSON.stringify({ idToken: s.token, action, data }),
-      });
-      res = await r.json();
-    }
+    return await supabaseCall(s.email, action, data, { role });
   } catch (err) {
-    throw Object.assign(new Error("Couldn't reach the server. Check your internet and try again."), { code: 'NETWORK', cause: err });
+    if (err.code === 'AUTH') { await signOut(); signingOut = false; onAuthLost(); }
+    if (err instanceof TypeError || /fetch/i.test(err.message)) {
+      throw Object.assign(new Error("Couldn't reach the server. Check your internet and try again."), { code: 'NETWORK', cause: err });
+    }
+    throw err;
   }
-  if (!res.ok) {
-    if (res.code === 'AUTH') { signOut(); onAuthLost(); }
-    throw Object.assign(new Error(res.error), { code: res.code });
-  }
-  lastRev = res.rev;
-  return res.data;
+}
+
+// Runs fn whenever a teammate changes something. Returns false in demo mode
+// (nothing to listen to; the app polls instead).
+export function watchChanges(fn) {
+  if (isDemo()) return false;
+  onChanges(fn);
+  return true;
 }
