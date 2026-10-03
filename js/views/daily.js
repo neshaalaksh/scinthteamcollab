@@ -19,7 +19,6 @@ export default {
     const ticked = checks.filter((c) => routines.some((r) => r.id === c.routineId && r.people.includes(c.email))).length;
     const check = (rid, email) => checks.find((c) => c.routineId === rid && c.email === email);
     const others = updates.filter((u) => u.email !== S.me.email);
-    const missing = people.filter((p) => p.email !== S.me.email && !updates.some((u) => u.email === p.email));
     const isFuture = date > isoDate();
 
     $('#topbar-slot').innerHTML = `
@@ -60,7 +59,6 @@ export default {
               <div><b>Blockers:</b> ${u.blockers ? `<span class="bad">${esc(u.blockers)}</span>` : 'none'}</div>
             </div>`;
           }).join('')}
-          ${missing.map((p) => `<div class="card dashed muted">${esc(p.name)} hasn't posted yet</div>`).join('')}
         </section>
       </div>`;
 
