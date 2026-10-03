@@ -353,10 +353,40 @@ legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
 .embed iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
 
 /* ---- sheets hub */
-.sheet-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin: -22px -28px 14px; padding: 8px 28px 0; background: var(--panel); overflow-x: auto; }
-.sheet-tabs a { padding: 9px 14px; color: var(--muted); text-decoration: none; border-bottom: 3px solid transparent; white-space: nowrap; }
-.sheet-tabs a.on { color: var(--ink); font-weight: 700; border-bottom-color: var(--accent); }
-.sheet-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.sheet-ico { flex: none; }
+.drive { max-width: 1200px; margin: 0 auto; }
+.drive-search { display: flex; align-items: center; gap: 10px; background: var(--sunk); border-radius: 999px; padding: 0 18px; height: 48px; max-width: 720px; margin-bottom: 18px; }
+.drive-search:focus-within { background: var(--panel); box-shadow: 0 1px 6px rgba(20, 20, 30, 0.25); }
+.drive-search-ico { font-size: 20px; color: var(--muted); }
+.drive-search-input { flex: 1; border: 0; background: none; outline: 0; font-size: 16px; min-width: 0; }
+.drive-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.drive-title { font-size: 20px; font-weight: 400; }
+.drive-chips { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+.drive-chip { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 14px; cursor: pointer; font-size: 14px; }
+.drive-chip:hover { background: var(--sunk); }
+.drive-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-weight: 700; }
+.drive-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.drive-card { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--sunk); border: 1px solid transparent; border-radius: 14px; text-decoration: none; color: var(--ink); min-width: 0; }
+.drive-card:hover { background: var(--accent-soft); }
+.drive-card:focus-visible { border-color: var(--accent); }
+.drive-card-top { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; }
+.drive-thumb { background: var(--panel); border-radius: 8px; height: 140px; padding: 10px; overflow: hidden; display: flex; }
+.mini-grid { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: 3px; }
+.mini-grid i { background: var(--sunk); border-radius: 2px; }
+.mini-grid i:nth-child(-n+4) { background: color-mix(in srgb, #188038 55%, var(--panel)); }
+.drive-card-foot { display: flex; justify-content: space-between; gap: 8px; }
+.drive-lock { font-size: 12px; flex: none; }
+.drive-list { border-top: 1px solid var(--line); }
+.drive-row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr) minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; align-items: center; padding: 0 12px; min-height: 48px; border-bottom: 1px solid var(--line-soft); color: var(--ink); text-decoration: none; font-size: 14px; }
+a.drive-row:hover, .drive-row.link:hover { background: var(--sunk); }
+.drive-row.link, .drive-card.link { cursor: pointer; }
+.drive-end { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.drive-more { width: 28px; height: 28px; border: 0; background: none; border-radius: 50%; flex: none; }
+.drive-more:hover { background: var(--line); }
+.drive-row.head { min-height: 40px; color: var(--muted); font-weight: 700; font-size: 13px; }
+.drive-name, .drive-owner { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.drive-owner { gap: 8px; }
 .sheet-frame .embed { margin: 0; }
 .sheet-frame .embed.fill .embed-frame { height: calc(100vh - 250px); }
 
@@ -412,7 +442,9 @@ legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
   .docs-layout { grid-template-columns: minmax(0, 1fr); margin: -16px -16px -40px; }
   .doc-tree { border-right: 0; border-bottom: 1px solid var(--line); }
   .doc-view { padding: 20px 16px 40px; }
-  .sheet-tabs { margin: -16px -16px 12px; padding: 8px 16px 0; }
+  .drive-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .drive-row > :nth-child(n+3) { display: none; }
+  .drive-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cal-cell { min-height: 72px; padding: 4px; }
   .ev { font-size: 10px; }
   .field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
