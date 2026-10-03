@@ -18,7 +18,7 @@ Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, cal
 | Calendar | Month or week view of tasks due and done, plus routine ticks per day |
 | Daily | Repeating routines with a tick per person (time saved), and everyone's daily update |
 | History | Everything done, grouped by day, with charts. Members see their own; Owner and Admins see everyone. |
-| Docs | Our own editor, saved as markdown. Type `/` to embed a Google Sheet, Google Doc, task, Slides, YouTube and more. Keeps old versions. |
+| Docs | A Google Docs style editor: several people type in the same doc at once and see each other's cursors. Fonts, sizes, colours, alignment, lists, checklists, tables, images, find & replace, print/PDF. Type `/` for blocks and to embed a Google Sheet, Google Doc, task, Slides, YouTube and more. Keeps old versions. |
 | Sheets | Your team's key Google Sheets in tabs, each editable or read-only |
 | Team & roles | The Owner and Admins add people and set roles and spaces |
 
@@ -44,9 +44,12 @@ js/supabase.js      every action (save task, tick routine…) done with Supabase
 js/state.js         loaded data and permission checks for showing buttons
 js/demo.js          demo mode: runs backend/Code.gs in the browser
 js/views/*.js       one file per screen
+js/collab.js        live co-editing: shares each doc's changes and cursors with everyone who has it open
+js/doc-tools.js     the doc editor's toolbar, "/" menu, find & replace and dialogs
+tools/editor        source for vendor/editor.bundle.js (only needed to change the editor: `npm install && npm run build`)
 supabase/migrations the database: tables, security rules, History log
 backend/Code.gs     the old Google Sheets backend, now only used by demo mode
-vendor/             marked, DOMPurify, Toast UI Editor, Supabase (stored here so nothing loads from other sites)
+vendor/             marked, DOMPurify, the doc editor (Tiptap + Yjs, built from tools/editor), Supabase (stored here so nothing loads from other sites)
 ```
 
 ## Running it on your computer

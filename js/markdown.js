@@ -28,7 +28,12 @@ function isolateEmbedLines(src) {
   }).join('\n');
 }
 
-export function renderMarkdown(src) {
+// Doc bodies are HTML now (from the live editor); older ones are still markdown.
+const HTML_BODY = /^\s*<(p|h[1-6]|ul|ol|div|table|blockquote|pre|hr)[\s>/]/i;
+export const isHtmlBody = (body) => HTML_BODY.test(String(body || ''));
+
+// opts.embeds = 'node' leaves embeds as <div data-embed="url"> for the editor to take over.
+export function renderMarkdown(src, opts = {}) {
   src = isolateEmbedLines(unescapeUrls(src));
   let html;
   if (marked && DOMPurify) {
@@ -48,7 +53,9 @@ export function renderMarkdown(src) {
     const info = toEmbed(match[1]);
     if (!info) return;
     const holder = document.createElement('template');
-    holder.innerHTML = embedHtml(info, match[2] ? Number(match[2]) : undefined);
+    holder.innerHTML = opts.embeds === 'node'
+      ? `<div data-embed="${match[1].replace(/"/g, '&quot;')}" data-height="${match[2] || ''}">${esc(match[1])}</div>`
+      : embedHtml(info, match[2] ? Number(match[2]) : undefined);
     p.replaceWith(holder.content);
   });
 
@@ -56,5 +63,22 @@ export function renderMarkdown(src) {
     a.target = '_blank';
     a.rel = 'noopener';
   });
+  return tpl.innerHTML;
+}
+
+// A doc body (HTML or old markdown) as safe HTML for reading, with embeds swapped in.
+export function renderDoc(body) {
+  if (!isHtmlBody(body)) return renderMarkdown(body);
+  const clean = DOMPurify ? DOMPurify.sanitize(body, { ADD_ATTR: ['target', 'data-embed', 'data-height'] }) : esc(body);
+  const tpl = document.createElement('template');
+  tpl.innerHTML = clean;
+  tpl.content.querySelectorAll('div[data-embed]').forEach((d) => {
+    const info = toEmbed(d.getAttribute('data-embed'));
+    if (!info) return;
+    const holder = document.createElement('template');
+    holder.innerHTML = embedHtml(info, Number(d.getAttribute('data-height')) || undefined);
+    d.replaceWith(holder.content);
+  });
+  tpl.content.querySelectorAll('a[href^="http"]').forEach((a) => { a.target = '_blank'; a.rel = 'noopener'; });
   return tpl.innerHTML;
 }
