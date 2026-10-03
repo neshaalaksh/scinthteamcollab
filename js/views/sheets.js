@@ -1,17 +1,5 @@
 import { S, act, can, inSpace, spaceName, person } from '../state.js';
 import { $, $$, esc, openModal, confirmBox, toast, avatar, timeAgo, lsGet, lsSet } from '../util.js';
-import { toEmbed, embedHtml } from '../embed.js';
-
-// A sheet link is saved as the normal Google link plus a mode; this turns it
-// into the address we show inside the app.
-function embedFor(sheet) {
-  let url = sheet.url;
-  if (sheet.mode === 'view' && !/\/d\/e\//.test(url)) {
-    url = url.replace(/\/(edit|htmlview|preview)([?#].*)?$/, '/preview$2');
-    if (!/\/preview/.test(url)) url = url.replace(/\/d\/([\w-]+).*$/, '/d/$1/preview');
-  }
-  return toEmbed(url);
-}
 
 const sheetIcon = (size = 20) => `
   <svg class="sheet-ico" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
@@ -26,23 +14,23 @@ const thumb = () => `
     <div class="mini-grid">${'<i></i>'.repeat(24)}</div>
   </div>`;
 
+const editBtn = (s) => (can.edit(s.space)
+  ? `<button class="icon-btn drive-more" data-edit="${esc(s.id)}" aria-label="Edit ${esc(s.name)}" title="Edit">⋮</button>` : '');
+
 const viewMode = () => (lsGet('teamspace.sheets.view', 'grid') === 'list' ? 'list' : 'grid');
 
 export default {
   title: 'Sheets',
   async render(el, params) {
     const list = S.sheets.filter(inSpace).sort((a, b) => (a.order - b.order) || a.name.localeCompare(b.name));
-    const current = params[0] && list.find((s) => s.id === params[0]);
     $('#topbar-slot').innerHTML = `<span class="grow"></span>${can.work() ? '<button class="btn primary" id="add-sheet">+ New</button>' : ''}`;
     if ($('#add-sheet')) $('#add-sheet').onclick = () => editSheet(null, () => this.render(el, params));
 
-    if (current) return this.renderViewer(el, params, current);
     return this.renderBrowser(el, params, list);
   },
 
   renderBrowser(el, params, list) {
     let query = '';
-    let filter = 'all';
 
     el.innerHTML = `
       <div class="drive">
@@ -58,19 +46,13 @@ export default {
             <button data-layout="grid" title="Grid layout" aria-label="Grid layout">▦</button>
           </div>
         </div>
-        <div class="drive-chips" role="group" aria-label="Filter">
-          <button class="drive-chip on" data-filter="all">All</button>
-          <button class="drive-chip" data-filter="edit">Editable</button>
-          <button class="drive-chip" data-filter="view">Read-only</button>
-        </div>
         <div id="drive-body"></div>
       </div>`;
 
     const body = $('#drive-body', el);
     const draw = () => {
       const q = query.trim().toLowerCase();
-      const shown = list.filter((s) => (filter === 'all' || (filter === 'view') === (s.mode === 'view'))
-        && (!q || s.name.toLowerCase().includes(q) || spaceName(s.space).toLowerCase().includes(q)));
+      const shown = list.filter((s) => (!q || s.name.toLowerCase().includes(q) || spaceName(s.space).toLowerCase().includes(q)));
       const layout = viewMode();
       $$('[data-layout]', el).forEach((b) => b.classList.toggle('on', b.dataset.layout === layout));
 
@@ -93,64 +75,41 @@ export default {
             ${shown.map((s) => {
               const who = person(s.addedBy);
               return `
-              <a class="drive-row" role="row" href="#/sheets/${esc(s.id)}">
-                <span class="drive-name" role="cell">${sheetIcon(20)}<span class="trunc">${esc(s.name)}</span>${s.mode === 'view' ? '<span class="drive-lock" title="Read-only">🔒</span>' : ''}</span>
+              <div class="drive-row link" role="row" data-open="${esc(s.id)}">
+                <span class="drive-name" role="cell">${sheetIcon(20)}<span class="trunc">${esc(s.name)}</span></span>
                 <span class="muted" role="cell">${esc(spaceName(s.space))}</span>
                 <span class="drive-owner" role="cell">${who ? `${avatar(who, 22)}<span class="trunc">${esc(who.email === S.me?.email ? 'me' : who.name)}</span>` : ''}</span>
-                <span class="muted" role="cell">${esc(timeAgo(s.addedAt))}</span>
-              </a>`;
+                <span class="drive-end" role="cell"><span class="muted">${esc(timeAgo(s.addedAt))}</span>${editBtn(s)}</span>
+              </div>`;
             }).join('')}
           </div>`;
       } else {
         body.innerHTML = `
           <div class="drive-grid">
             ${shown.map((s) => `
-              <a class="drive-card" href="#/sheets/${esc(s.id)}" title="${esc(s.name)}">
-                <div class="drive-card-top">${sheetIcon(18)}<span class="trunc">${esc(s.name)}</span>${s.mode === 'view' ? '<span class="drive-lock" title="Read-only">🔒</span>' : ''}</div>
+              <div class="drive-card link" data-open="${esc(s.id)}" title="${esc(s.name)}">
+                <div class="drive-card-top">${sheetIcon(18)}<span class="trunc grow">${esc(s.name)}</span>${editBtn(s)}</div>
                 ${thumb()}
                 <div class="drive-card-foot small muted"><span class="trunc">${esc(spaceName(s.space))}</span><span>${esc(timeAgo(s.addedAt))}</span></div>
-              </a>`).join('')}
+              </div>`).join('')}
           </div>`;
       }
     };
 
+    // Open the Google Sheet in a new tab; the ⋮ button edits the link instead.
+    body.onclick = (e) => {
+      const edit = e.target.closest('[data-edit]');
+      if (edit) {
+        e.preventDefault();
+        return editSheet(list.find((x) => x.id === edit.dataset.edit), () => this.render(el, params));
+      }
+      const open = e.target.closest('[data-open]');
+      const sheet = open && list.find((x) => x.id === open.dataset.open);
+      if (sheet) window.open(sheet.url, '_blank', 'noopener');
+    };
     $('.drive-search-input', el).oninput = (e) => { query = e.target.value; draw(); };
-    $$('[data-filter]', el).forEach((b) => b.onclick = () => {
-      filter = b.dataset.filter;
-      $$('[data-filter]', el).forEach((x) => x.classList.toggle('on', x === b));
-      draw();
-    });
     $$('[data-layout]', el).forEach((b) => b.onclick = () => { lsSet('teamspace.sheets.view', b.dataset.layout); draw(); });
     draw();
-  },
-
-  renderViewer(el, params, current) {
-    const info = embedFor(current);
-    el.innerHTML = `
-      <div class="drive-viewer-head">
-        <a class="icon-btn" href="#/sheets" aria-label="Back to Sheets" title="Back to Sheets">←</a>
-        ${sheetIcon(26)}
-        <h1 class="drive-viewer-title trunc">${esc(current.name)}</h1>
-        <span class="small muted">${current.mode === 'view' ? '🔒 Read-only' : 'Editable'} · ${esc(spaceName(current.space))}</span>
-        <span class="grow"></span>
-        ${can.edit(current.space) ? `
-          <div class="seg" role="group" aria-label="Show as">
-            <button data-mode="edit" class="${current.mode !== 'view' ? 'on' : ''}">Editable</button>
-            <button data-mode="view" class="${current.mode === 'view' ? 'on' : ''}">Read-only</button>
-          </div>
-          <button class="btn" id="edit-sheet">Edit</button>` : ''}
-        <a class="btn" href="${esc(current.url)}" target="_blank" rel="noopener">Open in Google Sheets ↗</a>
-      </div>
-      <div class="sheet-frame">${info ? embedHtml(info, current.height || 'fill') : '<div class="empty">This link can\'t be shown inside the app. Use "Open in Google Sheets".</div>'}</div>
-      <p class="small muted">${current.mode === 'view'
-        ? 'Read-only view. Anyone with access to the sheet can see it here.'
-        : 'Editable: changes save straight to Google. You need to be signed in to Google in this browser. If it asks you to sign in, use "Open in Google Sheets".'}</p>`;
-
-    $$('[data-mode]', el).forEach((b) => b.onclick = async () => {
-      const saved = await act('sheets.save', { id: current.id, fields: { mode: b.dataset.mode } });
-      if (saved) { Object.assign(current, saved); this.render(el, params); }
-    });
-    if ($('#edit-sheet')) $('#edit-sheet').onclick = () => editSheet(current, () => this.render(el, params));
   },
 };
 
@@ -160,12 +119,7 @@ function editSheet(sheet, done) {
       <div class="modal-head"><h2>${sheet ? 'Edit sheet' : 'Add a Google Sheet'}</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></div>
       <label>Name<input class="input" name="name" required value="${esc(sheet?.name)}" placeholder="e.g. Sales tracker"></label>
       <label>Google Sheets link<input class="input" name="url" required value="${esc(sheet?.url)}" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
-      <fieldset><legend>Show it as</legend>
-        <label class="check"><input type="radio" name="mode" value="edit" ${sheet?.mode !== 'view' ? 'checked' : ''}> Editable (edit inside the app; needs Google sign-in)</label>
-        <label class="check"><input type="radio" name="mode" value="view" ${sheet?.mode === 'view' ? 'checked' : ''}> Read-only (works for everyone)</label>
-      </fieldset>
       <label>Space<select class="input" name="space">${can.admin() || S.me.spaces === '*' ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
-      <label>Height in pixels (optional)<input class="input" type="number" name="height" min="200" max="3000" value="${sheet?.height || ''}" placeholder="fill the screen"></label>
       <div class="row">
         ${sheet && can.remove(sheet.addedBy, sheet.space) ? '<button type="button" class="btn danger" data-delete>Remove</button>' : ''}
         <span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button>
@@ -177,12 +131,11 @@ function editSheet(sheet, done) {
     e.preventDefault();
     const f = form.elements;
     if (!/^https:\/\/docs\.google\.com\/spreadsheets\//.test(f.url.value.trim())) return toast('Paste a Google Sheets link (docs.google.com/spreadsheets/…).', 'error');
-    const fields = { name: f.name.value.trim(), url: f.url.value.trim(), mode: f.mode.value, space: f.space.value, height: Number(f.height.value) || 0 };
+    const fields = { name: f.name.value.trim(), url: f.url.value.trim(), mode: sheet?.mode || 'edit', space: f.space.value, height: sheet?.height || 0 };
     const saved = await act('sheets.save', { id: sheet?.id, fields });
     if (!saved) return;
     S.sheets = sheet ? S.sheets.map((s) => (s.id === saved.id ? saved : s)) : [...S.sheets, saved];
     box.close();
-    if (!sheet) location.hash = `#/sheets/${saved.id}`;
   };
   const del = $('[data-delete]', box);
   if (del) del.onclick = async () => {
@@ -190,7 +143,6 @@ function editSheet(sheet, done) {
     if (await act('sheets.delete', { id: sheet.id })) {
       S.sheets = S.sheets.filter((s) => s.id !== sheet.id);
       box.close();
-      location.hash = '#/sheets';
     }
   };
 }
