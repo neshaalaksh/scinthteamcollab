@@ -18,7 +18,6 @@ export default {
     const expected = routines.reduce((n, r) => n + r.people.length, 0);
     const ticked = checks.filter((c) => routines.some((r) => r.id === c.routineId && r.people.includes(c.email))).length;
     const check = (rid, email) => checks.find((c) => c.routineId === rid && c.email === email);
-    const myUpdate = updates.find((u) => u.email === S.me.email);
     const others = updates.filter((u) => u.email !== S.me.email);
     const missing = people.filter((p) => p.email !== S.me.email && !updates.some((u) => u.email === p.email));
     const isFuture = date > isoDate();
@@ -52,13 +51,6 @@ export default {
           : `<div class="empty">No routines on this day.${can.admin() ? ' Add one with <b>Manage routines</b>.' : ''}</div>`}
         </section>
         <section class="updates">
-          <form class="card accent-card" id="my-update">
-            <h2>My update</h2>
-            <label>Yesterday<input class="input" name="yesterday" value="${esc(myUpdate?.yesterday)}" ${isFuture ? 'disabled' : ''}></label>
-            <label>Today<input class="input" name="today" value="${esc(myUpdate?.today)}" ${isFuture ? 'disabled' : ''}></label>
-            <label>Blockers<input class="input" name="blockers" value="${esc(myUpdate?.blockers)}" placeholder="None" ${isFuture ? 'disabled' : ''}></label>
-            <div class="row end">${myUpdate ? `<span class="small muted">Posted ${esc(fmtTime(myUpdate.at))}</span>` : ''}<button class="btn primary" ${isFuture ? 'disabled' : ''}>${myUpdate ? 'Update' : 'Post update'}</button></div>
-          </form>
           ${others.map((u) => {
             const p = person(u.email);
             return `<div class="card update">
@@ -80,13 +72,6 @@ export default {
       this.render(el, params);
       if (!ok) toast("That didn't save. Try again.", 'error');
     });
-
-    $('#my-update').onsubmit = async (e) => {
-      e.preventDefault();
-      const f = e.target.elements;
-      const saved = await act('daily.update', { date, yesterday: f.yesterday.value, today: f.today.value, blockers: f.blockers.value });
-      if (saved) { toast('Update posted'); this.render(el, params); }
-    };
 
     const manage = $('#manage-routines');
     if (manage) manage.onclick = () => manageRoutines(() => this.render(el, params));
