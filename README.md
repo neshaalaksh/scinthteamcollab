@@ -2,7 +2,7 @@
 
 Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, calendar and history in one place.
 
-- **Free:** the website runs on GitHub Pages and the data lives in a Google Sheet.
+- **Free:** the website runs on GitHub Pages and the data lives in Supabase (free plan).
 - **Sign-in:** with Google, using roles: Owner, Admin, Member, Guest.
 - **No build step:** plain HTML, CSS and JavaScript.
 
@@ -25,9 +25,12 @@ Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, cal
 ## How it fits together
 
 ```
-Browser ──> GitHub Pages (this repo) ──> Apps Script (backend/Code.gs) ──> "Teamspace DB" Google Sheet
-              the screens                  checks Google sign-in + role        one tab per kind of data
+Browser ──> GitHub Pages (this repo) ──> Supabase (Postgres database)
+              the screens                  Google sign-in, plus security rules that check
+                                           each person's role on every read and write
 ```
+
+Teammates' changes show up instantly (Supabase sends them to every open tab).
 
 ## Files
 
@@ -36,12 +39,14 @@ index.html          the page
 css/style.css       the look
 js/config.js        settings you can change (name, columns, priorities, URLs)
 js/app.js           sign-in, menu, page switching, syncing with teammates
-js/api.js           talks to the backend
+js/api.js           sign-in, and sends each action to Supabase or the demo
+js/supabase.js      every action (save task, tick routine…) done with Supabase
 js/state.js         loaded data and permission checks for showing buttons
 js/demo.js          demo mode: runs backend/Code.gs in the browser
 js/views/*.js       one file per screen
-backend/Code.gs     the backend: paste into Apps Script
-vendor/             marked, DOMPurify, Toast UI Editor (stored here so nothing loads from other sites)
+supabase/migrations the database: tables, security rules, History log
+backend/Code.gs     the old Google Sheets backend, now only used by demo mode
+vendor/             marked, DOMPurify, Toast UI Editor, Supabase (stored here so nothing loads from other sites)
 ```
 
 ## Running it on your computer
@@ -50,4 +55,4 @@ vendor/             marked, DOMPurify, Toast UI Editor (stored here so nothing l
 python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000. It starts in demo mode unless `js/config.js` has your URLs.
+Then open http://localhost:8000. It starts in demo mode unless `js/config.js` has your Supabase and Google details.

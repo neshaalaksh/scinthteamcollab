@@ -3,8 +3,11 @@
 export const CONFIG = {
   workspaceName: 'Scinth Team',
 
-  // From the setup guide (SETUP.md). Leave either empty to run in demo mode.
-  appsScriptUrl: 'https://script.google.com/macros/s/AKfycbzbP054bRd0GLSTG5ud57ZAxlEEcYKGsnGF2Xpyh-vPkW58Ql53mmdo9Xo379L4051Z/exec',   // https://script.google.com/macros/s/…/exec
+  // From the setup guide (SETUP.md). Leave any of these empty to run in demo mode.
+  // The Supabase key is the publishable one: it is meant to be public, and the
+  // database's security rules decide what each person can see and change.
+  supabaseUrl: 'https://ypnbhhwopxlczmbthicc.supabase.co',
+  supabaseKey: 'sb_publishable_ZJfHQL6KwvaLeN49THsUrw_NSWZWTP1',
   googleClientId: '894888753095-aekfkp71trs1it91dsdird8vb903tkp9.apps.googleusercontent.com',  // …apps.googleusercontent.com
 
   // Task board columns, in order. Rename, recolour, add or remove freely,
@@ -23,9 +26,10 @@ export const CONFIG = {
     { id: 'low', label: 'Low', bg: '#ECEDF0', fg: '#3F404A' },
   ],
 
-  // How often (seconds) to check for teammates' changes while the tab is open.
+  // Demo mode only: how often (seconds) to check for changes. The live app
+  // hears about teammates' changes instantly.
   pollSeconds: 30,
 };
 
 export const DONE = 'done';
-export const isDemo = () => !CONFIG.appsScriptUrl || !CONFIG.googleClientId;
+export const isDemo = () => !CONFIG.supabaseUrl || !CONFIG.supabaseKey || !CONFIG.googleClientId;
