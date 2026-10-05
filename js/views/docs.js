@@ -1,10 +1,11 @@
 import { S, act, can, inSpace, person, spaceName } from '../state.js';
 import { call } from '../api.js';
 import { isDemo } from '../config.js';
-import { $, $$, esc, timeAgo, fmtStamp, openModal, confirmBox, toast, debounce, initials } from '../util.js';
+import { $, $$, esc, timeAgo, fmtStamp, openModal, confirmBox, toast, debounce, initials, lsGet, lsSet } from '../util.js';
 import { renderMarkdown, renderDoc, isHtmlBody } from '../markdown.js';
 import { joinDoc, toB64, fromB64, REMOTE } from '../collab.js';
 import { mountToolbar, mountFindBar, attachSlash, openLinkDialog, popup } from '../doc-tools.js';
+import { mountReview, userColor } from '../doc-review.js';
 
 // The open doc: { id, editor, ydoc, awareness, collab, canWrite, dirty, saving, timer, due, touched, ... }
 let editing = null;
@@ -89,12 +90,7 @@ function loadEditorLib() {
   return editorLib;
 }
 
-const COLORS = ['#0f766e', '#b45309', '#1d4ed8', '#be185d', '#7e22ce', '#15803d', '#b91c1c', '#0369a1', '#a16207', '#4d7c0f'];
-function colorFor(email) {
-  let h = 0;
-  for (const c of String(email)) h = (h * 31 + c.charCodeAt(0)) % COLORS.length;
-  return COLORS[h];
-}
+let reviewOpen = false;   // whether the comments panel is showing (kept while you move between docs)
 
 async function openDoc(main, id) {
   if (editing?.id === id) return; // already open (a re-render while editing)
@@ -112,7 +108,11 @@ async function openDoc(main, id) {
 
   // The doc as shared data: what's saved, or (for older docs) built from the saved text.
   const ydoc = new Y.Doc();
+  // Demo mode keeps the shared data (comments and so on) in this browser, as long as the text hasn't changed since.
+  const demoKey = `teamspace.demo.ydoc.${id}`;
+  const demoSaved = isDemo() ? lsGet(demoKey, null) : null;
   if (doc.ydoc) Y.applyUpdate(ydoc, fromB64(doc.ydoc));
+  else if (demoSaved && demoSaved.version === doc.version) Y.applyUpdate(ydoc, fromB64(demoSaved.ydoc));
   else if (doc.body) {
     const html = isHtmlBody(doc.body) ? doc.body : renderMarkdown(doc.body, { embeds: 'node' });
     Y.applyUpdate(ydoc, window.TeamEditor.seedUpdate(html));
@@ -127,6 +127,8 @@ async function openDoc(main, id) {
       <span class="small muted" id="save-state"></span>
       <span class="grow"></span>
       ${canWrite ? '' : '<span class="badge info">View only</span>'}
+      ${canWrite ? '<button class="btn small mode-btn" id="mode-btn" aria-haspopup="menu"></button>' : ''}
+      <button class="btn small" id="review-toggle" aria-label="Comments and suggestions">💬 <span id="review-count">0</span></button>
       <div class="presence" id="presence" aria-label="People in this doc"></div>
       <span class="conn" id="conn"></span>
       <button class="btn small" id="versions">Versions</button>
@@ -135,12 +137,15 @@ async function openDoc(main, id) {
     <div class="doc-subbar small muted">${esc(space?.name || spaceName(doc.space))}${doc.folder ? ` · ${esc(doc.folder)}` : ''} · last saved ${esc(timeAgo(doc.updatedAt))} by ${esc(person(doc.updatedBy)?.name || '?')}</div>
     ${canWrite ? '<div class="doc-toolbar" id="doc-toolbar" role="toolbar" aria-label="Formatting"></div>' : ''}
     <div class="find-bar" id="find-bar" hidden></div>
-    <div class="doc-canvas" id="doc-canvas">
-      <div class="doc-page"><div id="editor"></div></div>
+    <div class="doc-body">
+      <div class="doc-canvas" id="doc-canvas">
+        <div class="doc-page"><div id="editor"></div></div>
+      </div>
+      <aside class="review-panel" id="review-panel" aria-label="Comments and suggestions" hidden></aside>
     </div>
     <div class="doc-status small muted"><span id="wc"></span><span class="grow"></span><span>${canWrite ? 'Type <b>/</b> on an empty line to add headings, tables, embeds…' : ''}</span></div>`;
 
-  const user = { name: S.me.name, color: colorFor(S.me.email), email: S.me.email };
+  const user = { name: S.me.name, color: userColor(S.me.email), email: S.me.email };
   const e = {
     id, ydoc, awareness, canWrite, hasYdoc: !isDemo() && doc.ydoc !== undefined, space: doc.space, folder: doc.folder, pinned: doc.pinned, createdBy: doc.createdBy,
     dirty: false, saving: false, timer: null, due: 0, touched: false, listeners: [],
@@ -165,8 +170,41 @@ async function openDoc(main, id) {
     onTransaction: () => { toolbar?.sync(); updateWords(); },
   });
   const editor = e.editor;
+  editor.storage.review.user = user;
+  const panel = $('#review-panel');
+  const showPanel = (on) => { reviewOpen = on; panel.hidden = !on; $('#review-toggle').classList.toggle('on', on); };
+  e.review = mountReview({
+    host: panel, editor, ydoc, me: user, canWrite, isAdmin: can.admin(),
+    onCount: (n) => { const c = $('#review-count'); if (c) c.textContent = n; },
+  });
+  panel.addEventListener('rv-open', () => showPanel(true));
+  panel.addEventListener('rv-close', () => showPanel(false));
+  $('#review-toggle').onclick = () => showPanel(panel.hidden);
+  showPanel(reviewOpen);
+  const addComment = () => { if (e.review.startComment()) showPanel(true); };
+
+  // Editing / Suggesting / Viewing
+  e.mode = 'edit';
+  const MODES = { edit: ['✎ Editing', 'Edit the doc directly'], suggest: ['✎ Suggesting', 'Your edits become suggestions others can accept or reject'], view: ['👁 Viewing', 'Read without changing anything'] };
+  const setMode = (mode) => {
+    e.mode = mode;
+    editor.storage.review.mode = mode;
+    editor.setEditable(mode !== 'view');
+    $('#doc-toolbar')?.classList.toggle('off', mode === 'view');
+    $('.doc-page')?.classList.toggle('suggesting', mode === 'suggest');
+    const b = $('#mode-btn');
+    if (b) { b.textContent = `${MODES[mode][0]} ▾`; b.className = `btn small mode-btn ${mode}`; }
+    e.review.refresh();
+    toolbar?.sync();
+  };
   if (canWrite) {
-    toolbar = mountToolbar($('#doc-toolbar'), editor, { onFind: () => find.open() });
+    $('#mode-btn').onclick = (ev) => popup(ev.currentTarget, Object.entries(MODES).map(([k, [label, hint]]) =>
+      `<button type="button" class="pop-item mode-item ${e.mode === k ? 'on' : ''}" data-pick="${k}"><b>${label}</b><span class="small muted">${hint}</span></button>`).join(''), { onPick: setMode });
+    setMode('edit');
+  }
+
+  if (canWrite) {
+    toolbar = mountToolbar($('#doc-toolbar'), editor, { onFind: () => find.open(), onComment: addComment });
     e.detachSlash = attachSlash(editor);
   }
   const find = mountFindBar($('#find-bar'), editor);
@@ -201,6 +239,7 @@ async function openDoc(main, id) {
       if (!saved) { e.dirty = true; status('Not saved. Retrying…'); schedule(8000); return false; }
       const m = S.docs.find((d) => d.id === id);
       if (m) Object.assign(m, { ...saved, body: undefined, ydoc: undefined });
+      if (isDemo()) lsSet(demoKey, { version: saved.version, ydoc: toB64(Y.encodeStateAsUpdate(ydoc)) });
       if (editing === e) {
         status(`Saved ${new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`);
         if (!$('#doc-search')?.value) renderTree(id);
@@ -270,6 +309,7 @@ async function openDoc(main, id) {
     const k = ev.key.toLowerCase();
     if (k === 's') { ev.preventDefault(); e.touched = true; e.dirty = true; save(true); }
     else if (k === 'f' && canWrite) { ev.preventDefault(); find.open(); }
+    else if (k === 'm' && ev.altKey && canWrite) { ev.preventDefault(); addComment(); }
     else if (k === 'k' && canWrite && editor.isFocused) { ev.preventDefault(); openLinkDialog(editor); }
   };
   const onVisibility = () => { if (document.hidden) save(false); };
@@ -378,6 +418,7 @@ async function closeDoc(skipSave) {
   editing = null;
   e.collab?.close();
   e.detachSlash?.();
+  e.review?.destroy();
   e.listeners.forEach((off) => off());
   e.editor.destroy();
   e.awareness.destroy();

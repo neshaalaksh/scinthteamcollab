@@ -26,6 +26,7 @@ const ICON = {
   table: svg('<rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M3 8.5h14M3 12.5h14M8 4v12M12.5 4v12"/>'),
   find: svg('<circle cx="9" cy="9" r="5"/><path d="M13 13l4 4"/>'),
   more: svg('<circle cx="4.5" cy="10" r="1"/><circle cx="10" cy="10" r="1"/><circle cx="15.5" cy="10" r="1"/>'),
+  comment: svg('<path d="M4 4h12a1 1 0 011 1v8a1 1 0 01-1 1H9l-4 3v-3H4a1 1 0 01-1-1V5a1 1 0 011-1zM10 6.5v5M7.5 9h5"/>'),
   embed: svg('<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M8 8l4 2-4 2z"/>'),
 };
 
@@ -97,7 +98,7 @@ const STYLES = [
 
 const run = (editor) => editor.chain().focus();
 
-export function mountToolbar(host, editor, { onFind } = {}) {
+export function mountToolbar(host, editor, { onFind, onComment } = {}) {
   const btn = (id, icon, title, action, active) => ({ id, icon, title, action, active });
   const groups = [
     [
@@ -140,6 +141,7 @@ export function mountToolbar(host, editor, { onFind } = {}) {
       btn('embed', `${ICON.embed}<span class="tb-label">Embed</span>`, 'Embed a Google Sheet, Doc, task, video…', (el) => embedMenu(el, editor)),
     ],
     [
+      btn('comment', ICON.comment, 'Add comment (Ctrl+Alt+M)', () => onComment?.()),
       btn('find', ICON.find, 'Find and replace (Ctrl+F)', () => onFind?.()),
       btn('more', ICON.more, 'More formatting', (el) => moreMenu(el, editor)),
     ],
