@@ -58,7 +58,7 @@ function renderTree(activeId) {
   });
   $('#doc-list').innerHTML = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([g, list]) => `
     <div class="tree-group">${esc(g)}</div>
-    ${list.map((d) => `<a class="doc-link ${d.id === activeId ? 'active' : ''}" href="#/docs/${esc(d.id)}">${d.pinned ? '<span class="pin-dot" title="Pinned"></span>' : ''}${esc(d.title || 'Untitled')}</a>`).join('')}
+    ${list.map((d) => `<a class="doc-link ${d.id === activeId ? 'active' : ''}" href="#/docs/${esc(d.id)}">${d.pinned ? '<span class="pin-dot" title="Starred"></span>' : ''}${esc(d.title || 'Untitled')}</a>`).join('')}
   `).join('') || '<p class="muted small">No docs in this space.</p>';
 }
 
@@ -85,7 +85,7 @@ async function showDoc(main, id) {
       ${holder ? `<span class="badge warn">${esc(holder.name)} is editing</span>` : ''}
       <span class="small muted">${esc(spaceName(doc.space))} · edited ${esc(timeAgo(doc.updatedAt))} by ${esc(person(doc.updatedBy)?.name || '?')}</span>
       <span class="grow"></span>
-      ${can.edit(doc.space) ? `<button class="btn" id="pin">${doc.pinned ? 'Unpin' : 'Pin'}</button>` : ''}
+      ${can.edit(doc.space) ? `<button class="btn" id="pin">${doc.pinned ? 'Unstar' : 'Star'}</button>` : ''}
       <button class="btn" id="versions">Versions</button>
       ${can.remove(doc.createdBy, doc.space) ? '<button class="btn danger" id="del-doc">Delete</button>' : ''}
       ${can.edit(doc.space) ? `<a class="btn primary ${holder ? 'disabled' : ''}" href="#/docs/${esc(id)}/edit" ${holder ? 'aria-disabled="true"' : ''}>Edit</a>` : ''}

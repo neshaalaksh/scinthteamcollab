@@ -19,7 +19,7 @@ const thumb = () => `
     <div class="mini-grid">${'<i></i>'.repeat(24)}</div>
   </div>`;
 
-const getFavorites = () => {
+export const getFavorites = () => {
   const fav = lsGet('teamspace.sheets.favorites', '');
   return fav ? new Set(fav.split(',')) : new Set();
 };
@@ -33,7 +33,7 @@ const isFavorite = (sheetId) => getFavorites().has(sheetId);
 const editBtn = (s) => (can.edit(s.space)
   ? `<button class="icon-btn drive-more" data-edit="${esc(s.id)}" aria-label="Edit ${esc(s.name)}" title="Edit">⋮</button>` : '');
 
-const starBtn = (s) => `<button class="icon-btn sheet-star" data-star="${esc(s.id)}" aria-label="${isFavorite(s.id) ? 'Remove from' : 'Add to'} favorites" title="${isFavorite(s.id) ? 'Remove from' : 'Add to'} favorites">${starIcon(isFavorite(s.id))}</button>`;
+const starBtn = (s) => `<button class="icon-btn sheet-star" data-star="${esc(s.id)}" aria-label="${isFavorite(s.id) ? 'Unstar' : 'Star'} ${esc(s.name)}" title="${isFavorite(s.id) ? 'Unstar' : 'Star'}">${starIcon(isFavorite(s.id))}</button>`;
 
 const viewMode = () => (lsGet('teamspace.sheets.view', 'grid') === 'list' ? 'list' : 'grid');
 

@@ -13,7 +13,7 @@ Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, cal
 
 | Screen | What it does |
 |---|---|
-| Home | Your routines today, your tasks, the team's progress, what's due this week, and pinned docs and sheets |
+| Home | Your routines today, your tasks, the team's progress, what's due this week, and starred docs and sheets |
 | Tasks | Board (drag cards) or list. Assignee, due date, priority, space, checklist, comments. Saves who completed it and when. |
 | Calendar | Month or week view of tasks due and done, plus routine ticks per day |
 | Daily | Repeating routines with a tick per person (time saved), and everyone's daily update |
