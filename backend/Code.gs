@@ -25,7 +25,7 @@ var SCHEMA = {
   Docs: ['id', 'title', 'space', 'folder', 'pinned', 'version', 'updatedAt', 'updatedBy',
     'lockedBy', 'lockedAt', 'createdAt', 'createdBy', 'body1', 'body2', 'body3', 'body4', 'body5'],
   DocVersions: ['docId', 'version', 'title', 'savedAt', 'savedBy', 'body1', 'body2', 'body3', 'body4', 'body5'],
-  SheetLinks: ['id', 'name', 'url', 'mode', 'space', 'height', 'addedBy', 'addedAt', 'order'],
+  SheetLinks: ['id', 'name', 'url', 'mode', 'space', 'height', 'pinned', 'addedBy', 'addedAt', 'order'],
   Activity: ['at', 'email', 'action', 'type', 'itemId', 'title', 'space', 'detail'],
 };
 
@@ -401,7 +401,8 @@ var ACTIONS = {
   // ---- sheet links
   'sheets.save': { write: true, fn: function (ctx, d) {
     var t = table('SheetLinks');
-    var f = pick(d.fields || {}, ['name', 'url', 'mode', 'space', 'height', 'order']);
+    var f = pick(d.fields || {}, ['name', 'url', 'mode', 'space', 'height', 'pinned', 'order']);
+    if (f.pinned !== undefined) f.pinned = f.pinned ? 'true' : '';
     if (f.url !== undefined && !/^https:\/\/docs\.google\.com\//.test(f.url)) fail('That is not a Google Sheets link.');
     if (f.mode !== undefined && f.mode !== 'edit' && f.mode !== 'view') f.mode = 'edit';
     var row;
@@ -549,6 +550,7 @@ function docFull(d) {
 function sheetOut(s) {
   var o = strip(s);
   o.height = Number(s.height) || 0;
+  o.pinned = s.pinned === 'true';
   o.order = Number(s.order) || 0;
   return o;
 }

@@ -110,6 +110,7 @@ create table public.sheet_links (
   mode       text not null default 'edit' check (mode in ('edit', 'view')),
   space      text references public.spaces (id) on delete set null,
   height     integer not null default 0,
+  pinned     boolean not null default false,
   sort_order double precision not null default 0,
   added_by   text,
   added_at   timestamptz not null default now()

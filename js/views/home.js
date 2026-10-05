@@ -29,7 +29,7 @@ export default {
 
     const pinned = [
       ...S.docs.filter((d) => d.pinned && inSpace(d)).map((d) => ({ kind: 'DOC', name: d.title, href: `#/docs/${d.id}` })),
-      ...S.sheets.filter(inSpace).slice(0, 4).map((s) => ({ kind: 'SHEET', name: s.name, href: s.url, ext: true })),
+      ...S.sheets.filter((s) => inSpace(s) && s.pinned).map((s) => ({ kind: 'SHEET', name: s.name, href: s.url, ext: true })),
     ];
 
     el.innerHTML = `
@@ -71,7 +71,7 @@ export default {
         </section>
         <section class="card">
           <div class="card-head"><h2>Pinned</h2></div>
-          ${pinned.map((p) => `<a class="pin" href="${esc(p.href)}"${p.ext ? ' target="_blank" rel="noopener"' : ''}><span class="kind kind-${p.kind.toLowerCase()}">${p.kind}</span>${esc(p.name)}</a>`).join('') || '<p class="muted">Pin docs to see them here.</p>'}
+          ${pinned.map((p) => `<a class="pin" href="${esc(p.href)}"${p.ext ? ' target="_blank" rel="noopener"' : ''}><span class="kind kind-${p.kind.toLowerCase()}">${p.kind}</span>${esc(p.name)}</a>`).join('') || '<p class="muted">Pin docs and sheets to share them with the team here.</p>'}
         </section>
       </div>`;
 
