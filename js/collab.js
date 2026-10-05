@@ -5,6 +5,7 @@
 // Messages: { t: 'update', d }  a Yjs change
 //           { t: 'sync', sv, reply? }  "here is what I have, send what I'm missing"
 //           { t: 'aw', d }      cursor / presence changes
+//           { t: 'reload' }     "a change too big to send was just saved: load the doc from the database"
 
 import { isDemo } from './config.js';
 import { docChannel } from './supabase.js';
@@ -22,13 +23,14 @@ export function fromB64(b64) {
 }
 
 const REMOTE = Symbol('remote');
-const MAX_BROADCAST = 180000; // Realtime messages are capped at 256KB; bigger changes arrive with the next save
+const MAX_BROADCAST = 180000; // Realtime messages are capped at 256KB; bigger changes go through the database (see saved())
 
 // Joins the doc's live channel. Returns { close, status } and calls onStatus('live' | 'connecting' | 'offline').
 export async function joinDoc({ docId, ydoc, awareness, canWrite, onStatus, reloadFromDb }) {
   const { Y, awarenessProtocol } = window.TeamEditor;   // the editor bundle is loaded before a doc opens
   let closed = false;
   let transport;
+  let unsentBig = false;   // a change too big to broadcast is waiting for our next save
 
   const send = (msg) => { if (!closed) transport?.send(msg); };
   const sendSync = (reply) => send({ t: 'sync', sv: toB64(Y.encodeStateVector(ydoc)), reply });
@@ -41,10 +43,13 @@ export async function joinDoc({ docId, ydoc, awareness, canWrite, onStatus, relo
     if (closed || !msg) return;
     if (msg.t === 'update') {
       Y.applyUpdate(ydoc, fromB64(msg.d), REMOTE);
+    } else if (msg.t === 'reload') {
+      reloadFromDb?.();
     } else if (msg.t === 'sync') {
       if (!canWrite) return;
       const diff = Y.encodeStateAsUpdate(ydoc, fromB64(msg.sv));
-      if (diff.length > 2) send({ t: 'update', d: toB64(diff) });
+      if (diff.length > MAX_BROADCAST) { unsentBig = true; send({ t: 'reload' }); }   // too big: they load it from the database
+      else if (diff.length > 2) send({ t: 'update', d: toB64(diff) });
       if (!msg.reply) sendSync(true);          // and ask for whatever the newcomer has that we don't
       sendAwareness([ydoc.clientID]);
     } else if (msg.t === 'aw') {
@@ -54,7 +59,7 @@ export async function joinDoc({ docId, ydoc, awareness, canWrite, onStatus, relo
 
   const onDocUpdate = (update, origin) => {
     if (origin === REMOTE || !canWrite) return;
-    if (update.length > MAX_BROADCAST) return;
+    if (update.length > MAX_BROADCAST) { unsentBig = true; return; }   // sent via the database after our next save
     send({ t: 'update', d: toB64(update) });
   };
   const onAwarenessUpdate = ({ added, updated, removed }, origin) => {
@@ -98,6 +103,12 @@ export async function joinDoc({ docId, ydoc, awareness, canWrite, onStatus, relo
 
   return {
     resync: () => { sendSync(false); },
+    // Call after each successful save: if a change was too big to broadcast, it's in the database now.
+    saved() {
+      if (!unsentBig) return;
+      unsentBig = false;
+      send({ t: 'reload' });
+    },
     close() {
       if (closed) return;
       awarenessProtocol.removeAwarenessStates(awareness, [ydoc.clientID], 'leave');

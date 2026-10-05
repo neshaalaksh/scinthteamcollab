@@ -26,6 +26,7 @@ export async function render() {
   const view = views[name];
   if (current?.view !== view) current?.view.leave?.();
   current = { view, name, params };
+  S.view++;
   $$('[data-nav]').forEach((a) => {
     a.classList.toggle('active', a.dataset.nav === name);
     a.setAttribute('aria-current', a.dataset.nav === name ? 'page' : 'false');

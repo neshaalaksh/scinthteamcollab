@@ -1,4 +1,4 @@
-import { S, can, person, spaceName } from '../state.js';
+import { S, can, person, spaceName, staleCheck } from '../state.js';
 import { call } from '../api.js';
 import { $, $$, esc, avatar, isoDate, addDays, dayStartIso, fmtDay, fmtTime, parseDate, lsGet, lsSet } from '../util.js';
 import { openTask } from './tasks.js';
@@ -50,7 +50,9 @@ export default {
     if ($('#hist-who')) $('#hist-who').value = prefs.who;
 
     el.innerHTML = '<div class="loading">Loading history…</div>';
+    const stale = staleCheck();
     const rows = await call('history.get', { from: dayStartIso(fromDay), to: new Date(Date.now() + 60000).toISOString() });
+    if (stale()) return;   // moved to another page while loading
     const who = can.admin() ? prefs.who : S.me.email;
     // A routine can be ticked and unticked; only its latest tick counts.
     const latest = new Map();

@@ -1,4 +1,4 @@
-import { S, inSpace, isDone, routinesOn } from '../state.js';
+import { S, inSpace, isDone, routinesOn, staleCheck } from '../state.js';
 import { call } from '../api.js';
 import { $, $$, esc, isoDate, addDays, parseDate, lsGet, lsSet } from '../util.js';
 import { openTask } from './tasks.js';
@@ -41,9 +41,11 @@ export default {
         <button data-mode="week" class="${prefs.mode === 'week' ? 'on' : ''}">Week</button>
       </div>`;
 
+    const stale = staleCheck();
     const { checks } = prefs.routines && S.me.role !== 'guest'
       ? await call('daily.get', { from: start, to: end }).catch(() => ({ checks: [] }))
       : { checks: [] };
+    if (stale()) return;   // moved to another page while loading
 
     const tasks = S.tasks.filter(inSpace);
     const cells = Array.from({ length: days }, (_, i) => {
@@ -55,9 +57,11 @@ export default {
       ];
       let routine = '';
       if (prefs.routines && d <= today && S.me.role !== 'guest') {
-        const expected = routinesOn(d).reduce((n, r) => n + r.people.length, 0);
-        const ticked = checks.filter((c) => c.date === d).length;
-        if (expected) routine = `${Math.min(ticked, expected)}/${expected}`;
+        // Same count as the Daily page: only ticks for routines shown here, by people expected to do them.
+        const todays = routinesOn(d);
+        const expected = todays.reduce((n, r) => n + r.people.length, 0);
+        const ticked = checks.filter((c) => c.date === d && todays.some((r) => r.id === c.routineId && r.people.includes(c.email))).length;
+        if (expected) routine = `${ticked}/${expected}`;
       }
       return `<div class="cal-cell ${inMonth ? '' : 'out'} ${d === today ? 'is-today' : ''}">
         <div class="cal-top"><span class="cal-num">${parseDate(d).getDate()}</span>${routine ? `<a class="cal-routines" href="#/daily/${d}" title="Routines ticked">${routine}</a>` : ''}</div>

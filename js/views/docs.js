@@ -219,12 +219,17 @@ async function openDoc(main, id) {
     e.timer = setTimeout(() => { e.timer = null; save(false); }, ms);
   };
   e.save = save;
-  async function save(flush) {
-    if (!e.canWrite || !e.touched) return true;
-    if (e.saving) { e.again = true; return false; }
-    if (!e.dirty && !flush) return true;
+  // Resolves true when everything is saved. e.inflight is the save in progress, if any.
+  function save(flush) {
+    if (e.paused || !e.canWrite || !e.touched) return Promise.resolve(true);
+    if (e.saving) { e.again = true; return Promise.resolve(false); }
+    if (!e.dirty && !flush) return Promise.resolve(true);
     e.saving = true;
     e.dirty = false;
+    e.inflight = saveNow(flush).finally(() => { e.inflight = null; });
+    return e.inflight;
+  }
+  async function saveNow(flush) {
     status('Saving…');
     try {
       const fields = { title: $('#doc-title')?.value.trim() || meta.get('title') || 'Untitled', body: editor.getHTML() };
@@ -236,7 +241,7 @@ async function openDoc(main, id) {
         fields.body = editor.getHTML();
       }
       const saved = await act('docs.save', { id, fields, final: !!flush });
-      if (!saved) { e.dirty = true; status('Not saved. Retrying…'); schedule(8000); return false; }
+      if (!saved) { e.dirty = true; if (editing === e) { status('Not saved. Retrying…'); schedule(8000); } return false; }
       const m = S.docs.find((d) => d.id === id);
       if (m) Object.assign(m, { ...saved, body: undefined, ydoc: undefined });
       if (isDemo()) lsSet(demoKey, { version: saved.version, ydoc: toB64(Y.encodeStateAsUpdate(ydoc)) });
@@ -244,10 +249,16 @@ async function openDoc(main, id) {
         status(`Saved ${new Date().toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`);
         if (!$('#doc-search')?.value) renderTree(id);
       }
+      e.collab?.saved();
       return true;
+    } catch {
+      // e.g. the network dropped while fetching teammates' changes: keep the edits marked unsaved and retry.
+      e.dirty = true;
+      if (editing === e) { status('Not saved. Retrying…'); schedule(8000); }
+      return false;
     } finally {
       e.saving = false;
-      if (e.again) { e.again = false; schedule(300); }
+      if (e.again && !e.paused) { e.again = false; schedule(300); }
     }
   }
 
@@ -363,11 +374,18 @@ function docMenu(anchor, e, editor, titleEl) {
       else if (v === 'wide') $('#doc-canvas')?.classList.toggle('wide');
       else if (v === 'delete') {
         if (!(await confirmBox(`Delete "${doc.title}"? This can't be undone.`))) return;
-        await closeDoc(true);
+        // Stop autosave while deleting, but keep the editor (and unsaved edits) until the delete goes through.
+        e.paused = true;
+        clearTimeout(e.timer);
+        if (e.inflight) await e.inflight;
         if (await act('docs.delete', { id: e.id })) {
+          await closeDoc(true);
           S.docs = S.docs.filter((d) => d.id !== e.id);
           toast('Doc deleted');
           location.hash = '#/docs';
+        } else {
+          e.paused = false;
+          if (e.dirty) e.save(true);
         }
       }
     },
@@ -378,7 +396,7 @@ function editDetails(e, doc) {
   const box = openModal(`
     <form class="stack">
       <div class="modal-head"><h2>Space and folder</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></div>
-      <label>Space <select class="input" name="space">${can.admin() || S.me.spaces === '*' ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}" ${doc.space === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      <label>Space <select class="input" name="space">${can.admin() || S.me.spaces === '*' || !doc.space ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}" ${doc.space === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
       <label>Folder <input class="input" name="folder" value="${esc(doc.folder || '')}" placeholder="optional"></label>
       <div class="row end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div>
     </form>`);
@@ -410,11 +428,16 @@ function downloadHtml(title, body) {
 async function closeDoc(skipSave) {
   const e = editing;
   if (!e) return;
-  clearTimeout(e.timer);
   if (!skipSave) {
-    try { await e.save(true); } catch { /* the next open will merge from the last save */ }
+    // Let a save that is already running finish, then save whatever was typed since.
+    if (e.inflight) await e.inflight;
+    clearTimeout(e.timer);
+    const ok = await e.save(true);
+    if (!ok && e.dirty) toast("Your last changes to this doc couldn't be saved. Check your internet.", 'error');
   }
   if (editing !== e) return;
+  e.paused = true;   // no autosave after this point
+  clearTimeout(e.timer);
   editing = null;
   e.collab?.close();
   e.detachSlash?.();

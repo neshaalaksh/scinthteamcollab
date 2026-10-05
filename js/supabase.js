@@ -101,6 +101,21 @@ function check({ data, error }, emptyMessage) {
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 
+// Supabase returns at most 1,000 rows per request (its default "max rows"), so read in pages.
+// `query(from, to)` builds the request for one page; it needs a stable order.
+const PAGE = 1000;
+async function allRows(query, max = Infinity) {
+  const out = [];
+  while (out.length < max) {
+    const from = out.length;
+    const to = Math.min(from + PAGE, max) - 1;
+    const rows = check(await query(from, to));
+    out.push(...rows);
+    if (rows.length < to - from + 1) break;   // a short page: that was the last one
+  }
+  return out;
+}
+
 function slug(name) {
   const base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'space';
   return `${base}-${Math.random().toString(36).slice(2, 6)}`;
@@ -116,19 +131,19 @@ const ACTIONS = {
     const [team, spaces, tasks, routines, docs, sheets] = await Promise.all([
       sb.from('team').select('*').order('name'),
       sb.from('spaces').select('*').order('name'),
-      sb.from('tasks').select('*'),
+      allRows((a, b) => sb.from('tasks').select('*').order('id').range(a, b)),
       sb.from('routines').select('*').eq('active', true).order('created_at'),
-      sb.from('docs').select(DOC_META),
-      sb.from('sheet_links').select('*').order('sort_order'),
+      allRows((a, b) => sb.from('docs').select(DOC_META).order('id').range(a, b)),
+      allRows((a, b) => sb.from('sheet_links').select('*').order('sort_order').order('id').range(a, b)),
     ]);
     return {
       me: personOut(meRow),
       team: check(team).map(personOut),
       spaces: check(spaces).map(spaceOut),
-      tasks: check(tasks).map(taskOut),
+      tasks: tasks.map(taskOut),
       routines: check(routines).map(routineOut),
-      docs: check(docs).map(docOut),
-      sheets: check(sheets).map(sheetOut),
+      docs: docs.map(docOut),
+      sheets: sheets.map(sheetOut),
     };
   },
 
@@ -190,7 +205,12 @@ const ACTIONS = {
     if (d.on) {
       check(await sb.from('daily_checks').upsert({ date: d.date, routine_id: d.routineId, email }, { onConflict: 'date,routine_id,email', ignoreDuplicates: true }));
     } else {
-      check(await sb.from('daily_checks').delete().match({ date: d.date, routine_id: d.routineId, email }));
+      const key = { date: d.date, routine_id: d.routineId, email };
+      const gone = check(await sb.from('daily_checks').delete().match(key).select('email'));
+      // Nothing deleted: either it wasn't ticked, or the database refused. Only the second is a problem.
+      if (!gone.length && check(await sb.from('daily_checks').select('email').match(key)).length) {
+        fail('Your role does not allow this.', 'FORBIDDEN');
+      }
     }
     return { on: !!d.on };
   },
@@ -296,7 +316,8 @@ const ACTIONS = {
 
   // ---- history (newest first; the database limits it to what you may see)
   async 'history.get'(me, d) {
-    const rows = check(await sb.from('activity').select('*').gte('at', d.from).lte('at', d.to).order('at', { ascending: false }).limit(2000));
+    const rows = await allRows((a, b) => sb.from('activity').select('*').gte('at', d.from).lte('at', d.to)
+      .order('at', { ascending: false }).order('id', { ascending: false }).range(a, b), 2000);
     return rows.map(activityOut);
   },
 };

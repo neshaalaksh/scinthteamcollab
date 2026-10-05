@@ -52,6 +52,7 @@ export async function signInWithGoogle(idToken) {
   const { data, error } = await sb.auth.signInWithIdToken({ provider: 'google', token: idToken });
   if (error) throw Object.assign(new Error(`Sign-in didn't work: ${error.message}`), { code: 'AUTH' });
   session = fromSupabase(data.session);
+  signingOut = false;   // a sign-out before this (e.g. "not on the team") is over
 }
 
 export async function signOut() {
@@ -82,7 +83,7 @@ export async function call(action, data = {}) {
     return await supabaseCall(s.email, action, data, { role });
   } catch (err) {
     if (err.code === 'AUTH') { await signOut(); signingOut = false; onAuthLost(); }
-    if (err instanceof TypeError || /fetch/i.test(err.message)) {
+    if (/failed to fetch|fetch failed|networkerror|load failed|network request failed/i.test(err.message || '')) {
       throw Object.assign(new Error("Couldn't reach the server. Check your internet and try again."), { code: 'NETWORK', cause: err });
     }
     throw err;

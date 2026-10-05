@@ -55,7 +55,8 @@ function editable(p) {
 }
 
 function editPerson(p, done) {
-  const roles = can.owner() ? ['admin', 'member', 'guest'] : ['member', 'guest'];
+  // Only the owner can change roles (the database enforces it), so others just see the current one.
+  const roles = can.owner() ? ['admin', 'member', 'guest'] : p ? [p.role] : ['member', 'guest'];
   const chosen = new Set(!p || !p.spaces || p.spaces === '*' ? [] : p.spaces.split(','));
   const box = openModal(`
     <form class="stack">
@@ -64,7 +65,7 @@ function editPerson(p, done) {
       <label>Name<input class="input" name="name" value="${esc(p?.name)}" placeholder="How they show in the app"></label>
       <fieldset><legend>Role</legend>
         ${roles.map((r) => `<label class="check role-pick"><input type="radio" name="role" value="${r}" ${(p?.role || 'member') === r ? 'checked' : ''}> <b>${ROLES[r].label}</b> <span class="muted small">${ROLES[r].text}</span></label>`).join('')}
-        ${!can.owner() ? '<p class="small muted">Only the owner can make admins or change roles.</p>' : ''}
+        ${!can.owner() ? `<p class="small muted">${p ? 'Only the owner can change roles.' : 'Only the owner can make admins or change roles.'}</p>` : ''}
       </fieldset>
       <fieldset><legend>Spaces they can see</legend>
         <label class="check"><input type="checkbox" name="all" ${!chosen.size ? 'checked' : ''}> All spaces</label>

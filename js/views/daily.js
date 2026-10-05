@@ -1,4 +1,4 @@
-import { S, act, can, person, routinesOn, spaceName } from '../state.js';
+import { S, act, can, person, routinesOn, spaceName, staleCheck } from '../state.js';
 import { call } from '../api.js';
 import { $, $$, esc, avatar, isoDate, addDays, fmtDay, fmtTime, openModal, confirmBox, toast } from '../util.js';
 
@@ -12,7 +12,9 @@ export default {
       return;
     }
     const date = /^\d{4}-\d{2}-\d{2}$/.test(params[0] || '') ? params[0] : isoDate();
+    const stale = staleCheck();
     const { checks, updates } = await call('daily.get', { from: date, to: date });
+    if (stale()) return;   // moved to another page while loading
     const routines = routinesOn(date);
     const people = S.team.filter((p) => p.role !== 'guest');
     const expected = routines.reduce((n, r) => n + r.people.length, 0);
@@ -67,7 +69,7 @@ export default {
       b.classList.toggle('on', on);
       b.textContent = on ? '✓' : '';
       const ok = await act('daily.toggle', { date, routineId: b.dataset.r, email: b.dataset.p, on });
-      this.render(el, params);
+      if (!stale()) this.render(el, params);
       if (!ok) toast("That didn't save. Try again.", 'error');
     });
 

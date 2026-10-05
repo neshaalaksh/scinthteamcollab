@@ -37,7 +37,11 @@ export default {
     el.innerHTML = '<div id="task-body"></div>';
     renderBody();
     // #/tasks/<id> opens that task (used by task links inside docs).
-    if (params[0]) openTask(params[0], () => { history.replaceState(null, '', '#/tasks'); });
+    if (params[0]) {
+      // Drop a link to a deleted task from the address, so the message shows once, not on every refresh.
+      if (!S.tasks.some((t) => t.id === params[0])) history.replaceState(null, '', '#/tasks');
+      openTask(params[0], () => { history.replaceState(null, '', '#/tasks'); });
+    }
   },
 };
 
@@ -204,7 +208,7 @@ export function openTask(id, onClose) {
           <label>Assignee<select class="input" name="assignee" ${dis}>${opt('', 'Unassigned', draft.assignee)}${S.team.filter((p) => p.role !== 'guest').map((p) => opt(p.email, p.name, draft.assignee)).join('')}</select></label>
           <label>Due<input class="input" type="date" name="due" value="${esc(draft.due)}" ${dis}></label>
           <label>Priority<select class="input" name="priority" ${dis}>${opt('', 'None', draft.priority)}${CONFIG.priorities.map((p) => opt(p.id, p.label, draft.priority)).join('')}</select></label>
-          <label>Space<select class="input" name="space" ${dis}>${can.admin() || S.me.spaces === '*' ? opt('', 'General', draft.space) : ''}${S.spaces.map((s) => opt(s.id, s.name, draft.space)).join('')}</select></label>
+          <label>Space<select class="input" name="space" ${dis}>${can.admin() || S.me.spaces === '*' || (!isNew && !draft.space) ? opt('', 'General', draft.space) : ''}${S.spaces.map((s) => opt(s.id, s.name, draft.space)).join('')}</select></label>
         </div>
         <div class="md-field">
           <div class="md-tabs"><b>Description</b>${editable ? '<button type="button" data-tab="write">Write</button><button type="button" class="on" data-tab="preview">Preview</button>' : ''}</div>
@@ -232,6 +236,10 @@ export function openTask(id, onClose) {
 
   const form = $('form', panel);
   const f = form.elements;
+  const formFields = () => ({
+    title: f.title.value.trim(), status: f.status.value, assignee: f.assignee.value,
+    due: f.due.value, priority: f.priority.value, space: f.space.value, description: f.description.value,
+  });
 
   $$('[data-tab]', panel).forEach((b) => b.onclick = () => {
     $$('[data-tab]', panel).forEach((x) => x.classList.toggle('on', x === b));
@@ -294,8 +302,11 @@ export function openTask(id, onClose) {
     const completeBtn = $('[data-complete]', panel);
     if (completeBtn) completeBtn.onclick = async () => {
       const status = isDone(draft) ? CONFIG.statuses[0].id : DONE;
+      // Keep anything changed in the panel too, not just the status.
+      const fields = { ...formFields(), status };
+      if (!fields.title) delete fields.title;
       panel.close();
-      const saved = await act('tasks.save', { id: task.id, fields: { status } });
+      const saved = await act('tasks.save', { id: task.id, fields });
       if (saved) { replaceTask(saved); toast(status === DONE ? 'Marked complete' : 'Reopened'); }
     };
     const del = $('[data-delete]', panel);
@@ -312,10 +323,7 @@ export function openTask(id, onClose) {
 
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const fields = {
-      title: f.title.value.trim(), status: f.status.value, assignee: f.assignee.value,
-      due: f.due.value, priority: f.priority.value, space: f.space.value, description: f.description.value,
-    };
+    const fields = formFields();
     if (!fields.title) return;
     panel.close();
     if (isNew) {

@@ -1,4 +1,4 @@
-import { S, act, inSpace, routinesOn, isDone, statusById } from '../state.js';
+import { S, act, inSpace, routinesOn, isDone, statusById, staleCheck } from '../state.js';
 import { call } from '../api.js';
 import { esc, avatar, isoDate, addDays, parseDate, dueLabel, $$ } from '../util.js';
 import { openTask } from './tasks.js';
@@ -9,11 +9,13 @@ export default {
     const today = isoDate();
     const hour = new Date().getHours();
     const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+    const stale = staleCheck();
     const { checks } = await call('daily.get', { from: today, to: today }).catch(() => ({ checks: [] }));
-    if (!S.me) return; // signed out while loading
+    if (!S.me || stale()) return; // signed out, or moved to another page, while loading
     const todays = routinesOn(today);
     const mine = todays.filter((r) => r.people.includes(S.me.email));
     const tickedByMe = new Set(checks.filter((c) => c.email === S.me.email).map((c) => c.routineId));
+    const myDone = mine.filter((r) => tickedByMe.has(r.id)).length;
     const myTasks = S.tasks.filter((t) => t.assignee === S.me.email && !isDone(t) && inSpace(t))
       .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')).slice(0, 7);
 
@@ -39,8 +41,8 @@ export default {
         <section class="card">
           <div class="card-head"><h2>My routines today</h2><a href="#/daily">Open Daily</a></div>
           ${mine.length ? `
-            <div class="progress"><div style="width:${Math.round((tickedByMe.size / mine.length) * 100)}%"></div></div>
-            <p class="small muted"><b>${[...tickedByMe].filter((id) => mine.some((r) => r.id === id)).length} / ${mine.length}</b> done</p>
+            <div class="progress"><div style="width:${Math.round((myDone / mine.length) * 100)}%"></div></div>
+            <p class="small muted"><b>${myDone} / ${mine.length}</b> done</p>
             <div class="check-list">
               ${mine.map((r) => `<label class="check ${tickedByMe.has(r.id) ? 'is-done' : ''}">
                 <input type="checkbox" data-routine="${esc(r.id)}" ${tickedByMe.has(r.id) ? 'checked' : ''}> <span>${esc(r.title)}</span></label>`).join('')}
@@ -80,7 +82,7 @@ export default {
       box.closest('label').classList.toggle('is-done', box.checked);
       const ok = await act('daily.toggle', { date: today, routineId: box.dataset.routine, on: box.checked });
       if (!ok) box.checked = !box.checked;
-      this.render(el);
+      if (!stale()) this.render(el);
     });
   },
 };

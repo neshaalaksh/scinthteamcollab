@@ -180,7 +180,7 @@ function editSheet(sheet, done) {
       <div class="modal-head"><h2>${sheet ? 'Edit sheet' : 'Add a Google Sheet'}</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></div>
       <label>Name<input class="input" name="name" required value="${esc(sheet?.name)}" placeholder="e.g. Sales tracker"></label>
       <label>Google Sheets link<input class="input" name="url" required value="${esc(sheet?.url)}" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
-      <label>Space<select class="input" name="space">${can.admin() || S.me.spaces === '*' ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
+      <label>Space<select class="input" name="space">${can.admin() || S.me.spaces === '*' || (sheet && !sheet.space) ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
       <div class="row">
         ${sheet && can.remove(sheet.addedBy, sheet.space) ? '<button type="button" class="btn danger" data-delete>Remove</button>' : ''}
         <span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button>

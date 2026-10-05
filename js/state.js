@@ -14,7 +14,14 @@ export const S = {
   docs: [],
   sheets: [],
   space: lsGet('teamspace.space', 'all'),
+  view: 0,   // bumped on every page render, so a slow render can tell it has been replaced
 };
+
+// Call at the start of a view's render; after any await, `if (stale()) return;`.
+export function staleCheck() {
+  const n = S.view;
+  return () => S.view !== n;
+}
 
 export async function loadAll() {
   const data = await call('bootstrap');
@@ -50,10 +57,16 @@ export const can = {
 };
 
 function canSee(space) {
-  if (rank() >= RANK.admin) return true;
-  const s = String(S.me?.spaces || '').trim();
-  if ((s === '' || s === '*') && S.me?.role !== 'guest') return true;
-  if (!space) return S.me?.role !== 'guest';
+  return personCanSee(S.me, space);
+}
+
+// Same rule as private.can_see in the database, for any person.
+function personCanSee(p, space) {
+  if (!p) return false;
+  if (RANK[p.role] >= RANK.admin) return true;
+  const s = String(p.spaces || '').trim();
+  if ((s === '' || s === '*') && p.role !== 'guest') return true;
+  if (!space) return p.role !== 'guest';
   return s.split(',').map((x) => x.trim()).includes(space);
 }
 
@@ -79,9 +92,13 @@ export const isDone = (t) => t.status === DONE;
 export function routinesOn(date) {
   const [y, m, d] = date.split('-').map(Number);
   const weekday = new Date(y, m - 1, d).getDay();
-  const members = S.team.filter((p) => p.role !== 'guest').map((p) => p.email);
+  const members = S.team.filter((p) => p.role !== 'guest');
   return S.routines
     .filter((r) => (r.days?.length ? r.days : [1, 2, 3, 4, 5]).includes(weekday))
     .filter(inSpace)
-    .map((r) => ({ ...r, people: r.assignees === 'everyone' ? members : r.assignees.filter((e) => members.includes(e)) }));
+    .map((r) => {
+      // Only people who can see the routine's space can tick it.
+      const able = members.filter((p) => personCanSee(p, r.space)).map((p) => p.email);
+      return { ...r, people: r.assignees === 'everyone' ? able : r.assignees.filter((e) => able.includes(e)) };
+    });
 }

@@ -113,7 +113,10 @@ export function openModal(html, { panel = false, wide = false, onClose } = {}) {
     document.removeEventListener('keydown', onKey);
     onClose?.();
   };
-  const onKey = (e) => { if (e.key === 'Escape' && document.activeElement?.tagName !== 'TEXTAREA') close(); };
+  const onKey = (e) => {
+    if (e.key !== 'Escape' || document.activeElement?.tagName === 'TEXTAREA') return;
+    if ($$('.backdrop').pop() === wrap) close();   // only the top one, not the dialogs under it
+  };
   document.addEventListener('keydown', onKey);
   wrap.addEventListener('mousedown', (e) => { if (e.target === wrap) close(); });
   box.close = close;
