@@ -12,7 +12,7 @@ Until you finish, the site runs in **demo mode**: fake data that stays in your o
 ## Step 1: Make the database (5 min)
 
 - [ ] At [supabase.com/dashboard](https://supabase.com/dashboard), click **New project**. Pick the region closest to your team.
-- [ ] Open **SQL Editor**. Paste and run each file in [`supabase/migrations`](supabase/migrations), in order (`…01_tables`, `…02_security`, `…03_triggers`, `…04_rpc`).
+- [ ] Open **SQL Editor**. Paste and run each file in [`supabase/migrations`](supabase/migrations), in order (`…01_tables`, `…02_security`, `…03_triggers`, `…04_rpc`, `…05_live_docs`). The last one turns on live co-editing in Docs.
 - [ ] Still in the SQL Editor, make yourself the Owner:
 
   ```sql

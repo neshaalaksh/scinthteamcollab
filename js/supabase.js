@@ -52,6 +52,7 @@ const docOut = (d) => {
     createdBy: str(d.created_by),
   };
   if (d.body !== undefined) o.body = d.body;
+  if (d.ydoc !== undefined) o.ydoc = d.ydoc ?? '';
   return o;
 };
 
@@ -207,24 +208,15 @@ const ACTIONS = {
   },
 
   async 'docs.save'(me, d) {
-    const row = columns(d.fields || {}, { title: 'title', space: 'space', folder: 'folder', pinned: 'pinned', body: 'body' });
+    const row = columns(d.fields || {}, { title: 'title', space: 'space', folder: 'folder', pinned: 'pinned', body: 'body', ydoc: 'ydoc' });
     if (row.title !== undefined) row.title = String(row.title).trim() || 'Untitled';
     if (!d.id) {
-      if (d.lock) row.locked_by = me;
       return docOut(one(check(await sb.from('docs').insert(row).select())));
     }
-    if (d.final === true) row.locked_by = null;        // pressed Done: release the lock
-    else if (d.final === false) row.locked_by = me;    // autosave: keep the lock fresh
-    let q = sb.from('docs').update(row).eq('id', d.id);
-    if (row.body !== undefined && d.baseVersion !== undefined) q = q.eq('version', d.baseVersion);
-    const rows = check(await q.select());
-    if (!rows.length) {
-      if (row.body !== undefined && d.baseVersion !== undefined) {
-        const exists = check(await sb.from('docs').select('id').eq('id', d.id).maybeSingle());
-        if (exists) fail('Someone saved a newer version while you were editing.', 'CONFLICT');
-      }
-      fail('You cannot edit docs in this space.', 'FORBIDDEN');
-    }
+    // Several people edit at once and the editor merges their changes (see js/collab.js),
+    // so there is no lock and no version check: the newest merged copy wins.
+    const rows = check(await sb.from('docs').update(row).eq('id', d.id).select(DOC_META));
+    if (!rows.length) fail('You cannot edit docs in this space.', 'FORBIDDEN');
     return docOut(rows[0]);
   },
 
@@ -316,11 +308,23 @@ export async function supabaseCall(email, action, data, ctx = {}) {
   return fn(email, data, ctx);
 }
 
+// A private broadcast channel for one doc's live edits (the database checks who may join).
+export async function docChannel(docId) {
+  const client = await connect();
+  const { data } = await client.auth.getSession();
+  if (data.session) client.realtime.setAuth(data.session.access_token);
+  return client.channel(`doc:${docId}`, { config: { private: true, broadcast: { self: false, ack: false } } });
+}
+
 // Calls fn (at most every half second) whenever a teammate changes something.
 export function onChanges(fn) {
   let timer = null;
   const fire = () => { clearTimeout(timer); timer = setTimeout(fn, 500); };
+  // Doc edits save every few seconds while people type; they are already live in the editor,
+  // so the rest of the app only needs to catch up now and then.
+  let slow = null;
+  const fireSlow = () => { slow ??= setTimeout(() => { slow = null; fn(); }, 15000); };
   sb.channel('teamspace')
-    .on('postgres_changes', { event: '*', schema: 'public' }, fire)
+    .on('postgres_changes', { event: '*', schema: 'public' }, (p) => (p.table === 'docs' && p.eventType === 'UPDATE' ? fireSlow() : fire()))
     .subscribe();
 }
