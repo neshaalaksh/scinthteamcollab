@@ -2,7 +2,6 @@ import { S, act, inSpace, routinesOn, isDone, statusById } from '../state.js';
 import { call } from '../api.js';
 import { esc, avatar, isoDate, addDays, parseDate, dueLabel, $$ } from '../util.js';
 import { openTask } from './tasks.js';
-import { getFavorites } from './sheets.js';
 
 export default {
   title: 'Home',
@@ -28,10 +27,9 @@ export default {
       return { p, done, total: expected.length };
     }).filter((x) => x.total);
 
-    const starredSheets = getFavorites();
-    const starred = [
+    const pinned = [
       ...S.docs.filter((d) => d.pinned && inSpace(d)).map((d) => ({ kind: 'DOC', name: d.title, href: `#/docs/${d.id}` })),
-      ...S.sheets.filter((s) => inSpace(s) && starredSheets.has(s.id)).map((s) => ({ kind: 'SHEET', name: s.name, href: s.url, ext: true })),
+      ...S.sheets.filter((s) => inSpace(s) && s.pinned).map((s) => ({ kind: 'SHEET', name: s.name, href: s.url, ext: true })),
     ];
 
     el.innerHTML = `
@@ -72,8 +70,8 @@ export default {
           </div>
         </section>
         <section class="card">
-          <div class="card-head"><h2>Starred</h2></div>
-          ${starred.map((p) => `<a class="pin" href="${esc(p.href)}"${p.ext ? ' target="_blank" rel="noopener"' : ''}><span class="kind kind-${p.kind.toLowerCase()}">${p.kind}</span>${esc(p.name)}</a>`).join('') || '<p class="muted">Star docs and sheets to see them here.</p>'}
+          <div class="card-head"><h2>Pinned</h2></div>
+          ${pinned.map((p) => `<a class="pin" href="${esc(p.href)}"${p.ext ? ' target="_blank" rel="noopener"' : ''}><span class="kind kind-${p.kind.toLowerCase()}">${p.kind}</span>${esc(p.name)}</a>`).join('') || '<p class="muted">Pin docs and sheets to share them with the team here.</p>'}
         </section>
       </div>`;
 

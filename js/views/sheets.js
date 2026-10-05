@@ -19,7 +19,7 @@ const thumb = () => `
     <div class="mini-grid">${'<i></i>'.repeat(24)}</div>
   </div>`;
 
-export const getFavorites = () => {
+const getFavorites = () => {
   const fav = lsGet('teamspace.sheets.favorites', '');
   return fav ? new Set(fav.split(',')) : new Set();
 };
@@ -160,6 +160,7 @@ function editSheet(sheet, done) {
       <label>Name<input class="input" name="name" required value="${esc(sheet?.name)}" placeholder="e.g. Sales tracker"></label>
       <label>Google Sheets link<input class="input" name="url" required value="${esc(sheet?.url)}" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
       <label>Space<select class="input" name="space">${can.admin() || S.me.spaces === '*' ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
+      <label class="row"><input type="checkbox" name="pinned" ${sheet?.pinned ? 'checked' : ''}> Pin for the whole team (shows on Home)</label>
       <div class="row">
         ${sheet && can.remove(sheet.addedBy, sheet.space) ? '<button type="button" class="btn danger" data-delete>Remove</button>' : ''}
         <span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button>
@@ -171,7 +172,7 @@ function editSheet(sheet, done) {
     e.preventDefault();
     const f = form.elements;
     if (!/^https:\/\/docs\.google\.com\/spreadsheets\//.test(f.url.value.trim())) return toast('Paste a Google Sheets link (docs.google.com/spreadsheets/…).', 'error');
-    const fields = { name: f.name.value.trim(), url: f.url.value.trim(), mode: sheet?.mode || 'edit', space: f.space.value, height: sheet?.height || 0 };
+    const fields = { name: f.name.value.trim(), url: f.url.value.trim(), mode: sheet?.mode || 'edit', space: f.space.value, pinned: f.pinned.checked, height: sheet?.height || 0 };
     const saved = await act('sheets.save', { id: sheet?.id, fields });
     if (!saved) return;
     S.sheets = sheet ? S.sheets.map((s) => (s.id === saved.id ? saved : s)) : [...S.sheets, saved];

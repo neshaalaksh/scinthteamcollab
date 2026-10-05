@@ -57,7 +57,7 @@ const docOut = (d) => {
 
 const sheetOut = (s) => ({
   id: s.id, name: s.name, url: s.url, mode: s.mode, space: str(s.space), height: s.height || 0,
-  order: s.sort_order || 0, addedBy: str(s.added_by), addedAt: s.added_at,
+  pinned: !!s.pinned, order: s.sort_order || 0, addedBy: str(s.added_by), addedAt: s.added_at,
 });
 
 const checkOut = (c) => ({ date: c.date, routineId: c.routine_id, email: c.email, at: c.at, by: str(c.ticked_by) });
@@ -253,7 +253,7 @@ const ACTIONS = {
   async 'sheets.save'(me, d) {
     const f = d.fields || {};
     if (f.url !== undefined && !/^https:\/\/docs\.google\.com\//.test(f.url)) fail('That is not a Google Sheets link.');
-    const row = columns(f, { name: 'name', url: 'url', mode: 'mode', space: 'space', height: 'height', order: 'sort_order' });
+    const row = columns(f, { name: 'name', url: 'url', mode: 'mode', space: 'space', height: 'height', pinned: 'pinned', order: 'sort_order' });
     if (row.mode !== undefined && row.mode !== 'edit' && row.mode !== 'view') row.mode = 'edit';
     if (row.height !== undefined) row.height = Number(row.height) || 0;
     if (!d.id) {
