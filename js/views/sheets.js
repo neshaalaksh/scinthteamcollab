@@ -35,6 +35,16 @@ const editBtn = (s) => (can.edit(s.space)
 
 const starBtn = (s) => `<button class="icon-btn sheet-star" data-star="${esc(s.id)}" aria-label="${isFavorite(s.id) ? 'Unstar' : 'Star'} ${esc(s.name)}" title="${isFavorite(s.id) ? 'Unstar' : 'Star'}">${starIcon(isFavorite(s.id))}</button>`;
 
+const pinIcon = (filled = false) => `
+  <svg class="pin-ico" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" style="color: ${filled ? 'var(--accent)' : '#9E9E9E'}">
+    <path fill="currentColor" d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5a3 3 0 0 1-2 2.83V13h5.2v7l.8 1 .8-1v-7H18v-1.17A3 3 0 0 1 16 9z"/>
+  </svg>`;
+
+// Pinning is shared with the whole team (shows on Home); only editors can change it.
+const pinBtn = (s) => (can.edit(s.space)
+  ? `<button class="icon-btn sheet-pin" data-pin="${esc(s.id)}" aria-label="${s.pinned ? 'Unpin' : 'Pin'} ${esc(s.name)} for the team" title="${s.pinned ? 'Unpin for the team' : 'Pin for the team'}">${pinIcon(s.pinned)}</button>`
+  : (s.pinned ? `<span class="sheet-pin" title="Pinned for the team">${pinIcon(true)}</span>` : ''));
+
 const viewMode = () => (lsGet('teamspace.sheets.view', 'grid') === 'list' ? 'list' : 'grid');
 
 export default {
@@ -104,7 +114,7 @@ export default {
                 <span class="drive-name" role="cell">${sheetIcon(20)}<span class="trunc">${esc(s.name)}</span></span>
                 <span class="muted" role="cell">${esc(spaceName(s.space))}</span>
                 <span class="drive-owner" role="cell">${who ? `${avatar(who, 22)}<span class="trunc">${esc(who.email === S.me?.email ? 'me' : who.name)}</span>` : ''}</span>
-                <span class="drive-end" role="cell"><span class="muted">${esc(timeAgo(s.addedAt))}</span>${starBtn(s)}${editBtn(s)}</span>
+                <span class="drive-end" role="cell"><span class="muted">${esc(timeAgo(s.addedAt))}</span>${starBtn(s)}${pinBtn(s)}${editBtn(s)}</span>
               </div>`;
             }).join('')}
           </div>`;
@@ -113,7 +123,7 @@ export default {
           <div class="drive-grid">
             ${shown.map((s) => `
               <div class="drive-card link" data-open="${esc(s.id)}" title="${esc(s.name)}">
-                <div class="drive-card-top">${sheetIcon(18)}<span class="trunc grow">${esc(s.name)}</span>${starBtn(s)}${editBtn(s)}</div>
+                <div class="drive-card-top">${sheetIcon(18)}<span class="trunc grow">${esc(s.name)}</span>${starBtn(s)}${pinBtn(s)}${editBtn(s)}</div>
                 ${thumb()}
                 <div class="drive-card-foot small muted"><span class="trunc">${esc(spaceName(s.space))}</span><span>${esc(timeAgo(s.addedAt))}</span></div>
               </div>`).join('')}
@@ -123,6 +133,17 @@ export default {
 
     // Open the Google Sheet in a new tab; the ⋮ button edits the link instead.
     body.onclick = (e) => {
+      const pin = e.target.closest('[data-pin]');
+      if (pin) {
+        e.preventDefault();
+        e.stopPropagation();
+        const sheet = list.find((x) => x.id === pin.dataset.pin);
+        return act('sheets.save', { id: sheet.id, fields: { pinned: !sheet.pinned } }).then((saved) => {
+          if (!saved) return;
+          S.sheets = S.sheets.map((x) => (x.id === saved.id ? saved : x));
+          this.render(el, params);
+        });
+      }
       const star = e.target.closest('[data-star]');
       if (star) {
         e.preventDefault();
@@ -160,7 +181,6 @@ function editSheet(sheet, done) {
       <label>Name<input class="input" name="name" required value="${esc(sheet?.name)}" placeholder="e.g. Sales tracker"></label>
       <label>Google Sheets link<input class="input" name="url" required value="${esc(sheet?.url)}" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
       <label>Space<select class="input" name="space">${can.admin() || S.me.spaces === '*' ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
-      <label class="row"><input type="checkbox" name="pinned" ${sheet?.pinned ? 'checked' : ''}> Pin for the whole team (shows on Home)</label>
       <div class="row">
         ${sheet && can.remove(sheet.addedBy, sheet.space) ? '<button type="button" class="btn danger" data-delete>Remove</button>' : ''}
         <span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button>
@@ -172,7 +192,7 @@ function editSheet(sheet, done) {
     e.preventDefault();
     const f = form.elements;
     if (!/^https:\/\/docs\.google\.com\/spreadsheets\//.test(f.url.value.trim())) return toast('Paste a Google Sheets link (docs.google.com/spreadsheets/…).', 'error');
-    const fields = { name: f.name.value.trim(), url: f.url.value.trim(), mode: sheet?.mode || 'edit', space: f.space.value, pinned: f.pinned.checked, height: sheet?.height || 0 };
+    const fields = { name: f.name.value.trim(), url: f.url.value.trim(), mode: sheet?.mode || 'edit', space: f.space.value, height: sheet?.height || 0 };
     const saved = await act('sheets.save', { id: sheet?.id, fields });
     if (!saved) return;
     S.sheets = sheet ? S.sheets.map((s) => (s.id === saved.id ? saved : s)) : [...S.sheets, saved];
