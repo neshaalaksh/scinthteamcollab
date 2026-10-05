@@ -222,7 +222,7 @@ function seed({ mod, db }) {
   put('DocVersions', []);
 
   put('SheetLinks', [
-    { id: 's1', name: 'Sales tracker', url: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit', mode: 'view', space: 'ops', height: 0, pinned: true, addedBy: you, addedAt: at(-10, 9, 0), order: 1 },
+    { id: 's1', name: 'Sales tracker', url: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit', mode: 'view', space: 'ops', height: 0, pinned: 'true', addedBy: you, addedAt: at(-10, 9, 0), order: 1 },
     { id: 's2', name: 'Billing', url: 'https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit', mode: 'edit', space: 'client-a', height: 0, addedBy: you, addedAt: at(-10, 9, 0), order: 2 },
   ]);
 
