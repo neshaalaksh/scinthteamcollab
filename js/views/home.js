@@ -20,8 +20,10 @@ export default {
       .sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')).slice(0, 7);
 
     const weekStart = addDays(today, -((parseDate(today).getDay() + 6) % 7));
-    const weekDays = Array.from({ length: 5 }, (_, i) => addDays(weekStart, i));
-    const dueThisWeek = S.tasks.filter((t) => t.due && !isDone(t) && inSpace(t) && t.due >= weekDays[0] && t.due <= weekDays[4]);
+    const fullWeek = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+    const dueThisWeek = S.tasks.filter((t) => t.due && !isDone(t) && inSpace(t) && t.due >= fullWeek[0] && t.due <= fullWeek[6]);
+    // Mon–Fri, plus the weekend when something is due then (so those tasks don't vanish).
+    const weekDays = dueThisWeek.some((t) => t.due > fullWeek[4]) ? fullWeek : fullWeek.slice(0, 5);
 
     const people = S.team.filter((p) => p.role !== 'guest').map((p) => {
       const expected = todays.filter((r) => r.people.includes(p.email));
@@ -64,7 +66,7 @@ export default {
         </section>`}
         <section class="card span-2">
           <div class="card-head"><h2>Due this week</h2><a href="#/calendar">Calendar</a></div>
-          <div class="week-strip">
+          <div class="week-strip" style="--days:${weekDays.length}">
             ${weekDays.map((d) => `<div class="week-day ${d === today ? 'is-today' : ''}">
               <b>${parseDate(d).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}</b>
               ${dueThisWeek.filter((t) => t.due === d).map((t) => `<button class="chip-btn" data-task="${esc(t.id)}">${esc(t.title)}</button>`).join('')}

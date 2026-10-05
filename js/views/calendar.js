@@ -79,7 +79,7 @@ export default {
         <span>"4/5" = routine ticks that day. Click it to open Daily.</span>
       </div>`;
 
-    const rerender = () => this.render(el);
+    const rerender = () => { S.view++; this.render(el); };   // a newer render replaces this one
     $$('[data-step]').forEach((b) => b.onclick = () => {
       const step = Number(b.dataset.step);
       if (prefs.mode === 'month') { const d = parseDate(anchor); anchor = isoDate(new Date(d.getFullYear(), d.getMonth() + step, 1)); }

@@ -178,7 +178,7 @@ legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
 .due.overdue { color: var(--bad); font-weight: 700; }
 .due.due-today { color: var(--warn); font-weight: 700; }
 .team-row { display: flex; align-items: center; gap: 10px; }
-.week-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.week-strip { --days: 5; display: grid; grid-template-columns: repeat(var(--days), minmax(0, 1fr)); gap: 10px; }
 .week-day { background: var(--bg); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 6px; min-height: 90px; }
 .week-day b { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .week-day.is-today { outline: 2px solid var(--accent); }
@@ -424,7 +424,7 @@ a.drive-row:hover, .drive-row.link:hover { background: var(--sunk); }
   .view { padding: 16px 16px 40px; }
   .home-grid, .daily-grid, .history-grid, .team-grid { grid-template-columns: minmax(0, 1fr); }
   .span-2 { grid-column: auto; }
-  .week-strip { grid-template-columns: repeat(5, minmax(120px, 1fr)); overflow-x: auto; }
+  .week-strip { grid-template-columns: repeat(var(--days), minmax(120px, 1fr)); overflow-x: auto; }
   .docs-layout { grid-template-columns: minmax(0, 1fr); margin: -16px -16px -40px; }
   .doc-tree { border-right: 0; border-bottom: 1px solid var(--line); }
   .drive-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

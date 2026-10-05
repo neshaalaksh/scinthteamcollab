@@ -61,7 +61,7 @@ function canSee(space) {
 }
 
 // Same rule as private.can_see in the database, for any person.
-function personCanSee(p, space) {
+export function personCanSee(p, space) {
   if (!p) return false;
   if (RANK[p.role] >= RANK.admin) return true;
   const s = String(p.spaces || '').trim();

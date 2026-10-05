@@ -1,4 +1,4 @@
-import { S, can, person, spaceName, staleCheck } from '../state.js';
+import { S, can, person, spaceName, staleCheck, statusById } from '../state.js';
 import { call } from '../api.js';
 import { $, $$, esc, avatar, isoDate, addDays, dayStartIso, fmtDay, fmtTime, parseDate, lsGet, lsSet } from '../util.js';
 import { openTask } from './tasks.js';
@@ -22,7 +22,7 @@ function describe(a) {
   const what = { task: 'task', doc: 'doc', routine: 'routine', sheet: 'sheet', person: 'person', space: 'space', daily: '' }[a.type] ?? a.type;
   if (a.type === 'routine' && a.action === 'ticked') return `<b>${esc(a.title)}</b>`;
   if (a.type === 'task' && a.action === 'completed') return `<b>${esc(a.title)}</b>`;
-  if (a.action === 'moved') return `Moved <b>${esc(a.title)}</b> to ${esc(a.detail)}`;
+  if (a.action === 'moved') return `Moved <b>${esc(a.title)}</b> to ${esc(statusById(a.detail).label)}`;
   if (a.action === 'changed role') return `Changed <b>${esc(a.title)}</b>'s role: ${esc(a.detail)}`;
   if (a.type === 'daily') return 'Posted daily update';
   return `${esc(a.action[0].toUpperCase() + a.action.slice(1))} ${what} <b>${esc(a.title)}</b>`;
@@ -60,19 +60,30 @@ export default {
       const key = `${a.itemId}|${a.email}|${a.detail}`;
       if ((a.action === 'ticked' || a.action === 'unticked') && !latest.has(key)) latest.set(key, a);
     });
-    const live = rows.filter((a) => a.action !== 'ticked' || latest.get(`${a.itemId}|${a.email}|${a.detail}`) === a);
+    // Same for tasks: completed, reopened and completed again counts once, and a reopened task not at all.
+    const lastState = new Map();
+    rows.forEach((a) => {
+      if (a.type === 'task' && (a.action === 'completed' || a.action === 'reopened') && !lastState.has(a.itemId)) lastState.set(a.itemId, a);
+    });
+    const live = rows.filter((a) => {
+      if (a.action === 'ticked') return latest.get(`${a.itemId}|${a.email}|${a.detail}`) === a;
+      if (a.type === 'task' && a.action === 'completed') return lastState.get(a.itemId) === a;
+      return true;
+    });
+    // A tick belongs to the day of the routine (ticking yesterday's routine today counts for yesterday).
+    const dayOf = (a) => (a.action === 'ticked' && /^\d{4}-\d{2}-\d{2}$/.test(a.detail) ? a.detail : isoDate(new Date(a.at)));
     const list = live.filter((a) => (who === 'all' || a.email === who) && FILTERS[prefs.filter](a));
 
     const byDay = new Map();
     list.forEach((a) => {
-      const d = isoDate(new Date(a.at));
+      const d = dayOf(a);
       if (!byDay.has(d)) byDay.set(d, []);
       byDay.get(d).push(a);
     });
 
     const counted = live.filter((a) => (who === 'all' || a.email === who) && FILTERS.completed(a));
     const barDays = Array.from({ length: Math.min(prefs.days, 14) }, (_, i) => addDays(today, -(Math.min(prefs.days, 14) - 1 - i)));
-    const perDay = barDays.map((d) => counted.filter((a) => isoDate(new Date(a.at)) === d).length);
+    const perDay = barDays.map((d) => counted.filter((a) => dayOf(a) === d).length);
     const max = Math.max(1, ...perDay);
     const perPerson = S.team.filter((p) => p.role !== 'guest' && (who === 'all' || p.email === who)).map((p) => ({
       p,
@@ -114,7 +125,7 @@ export default {
         </aside>
       </div>`;
 
-    const rerender = () => this.render(el);
+    const rerender = () => { S.view++; this.render(el); };   // a newer render replaces this one
     $$('[data-filter]').forEach((b) => b.onclick = () => { prefs.filter = b.dataset.filter; save(); rerender(); });
     $('#hist-days').onchange = (e) => { prefs.days = Number(e.target.value); save(); rerender(); };
     if ($('#hist-who')) $('#hist-who').onchange = (e) => { prefs.who = e.target.value; save(); rerender(); };

@@ -1,4 +1,4 @@
-import { S, act, can, person, routinesOn, spaceName, staleCheck } from '../state.js';
+import { S, act, can, person, routinesOn, spaceName, staleCheck, personCanSee } from '../state.js';
 import { call } from '../api.js';
 import { $, $$, esc, avatar, isoDate, addDays, fmtDay, fmtTime, openModal, confirmBox, toast } from '../util.js';
 
@@ -135,6 +135,9 @@ function editRoutine(r, done) {
     };
     if (!fields.days.length) return toast('Pick at least one day.', 'error');
     if (fields.assignees !== 'everyone' && !fields.assignees.length) return toast('Pick who does it.', 'error');
+    // Someone who can't see the routine's space can't tick it, so it would never show for them.
+    const blind = fields.assignees === 'everyone' ? [] : fields.assignees.filter((em) => !personCanSee(person(em), fields.space));
+    if (blind.length) return toast(`${blind.map((em) => person(em).name).join(', ')} can't see ${spaceName(fields.space)}. Pick another space or other people.`, 'error');
     const saved = await act('routines.save', { id: r?.id, fields });
     if (!saved) return;
     S.routines = r ? S.routines.map((x) => (x.id === saved.id ? saved : x)) : [...S.routines, saved];

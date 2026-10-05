@@ -1,5 +1,5 @@
 import { CONFIG, DONE } from '../config.js';
-import { S, act, can, inSpace, person, spaceName, statusById, priorityById, isDone } from '../state.js';
+import { S, act, can, inSpace, person, spaceName, statusById, priorityById, isDone, personCanSee } from '../state.js';
 import { $, $$, esc, avatar, dueLabel, fmtStamp, timeAgo, openModal, confirmBox, toast, lsGet, lsSet, uid } from '../util.js';
 import { renderMarkdown } from '../markdown.js';
 
@@ -192,6 +192,16 @@ export function openTask(id, onClose) {
   });
   const dis = editable ? '' : 'disabled';
   const opt = (value, label, current) => `<option value="${esc(value)}" ${value === current ? 'selected' : ''}>${esc(label)}</option>`;
+  // Lists for the dropdowns. A value that's no longer in a list (someone removed from the team, a status or
+  // priority taken out of config.js) stays as an option, so saving never changes it behind your back.
+  const keep = (list, current, label) => (current && !list.some(([v]) => v === current) ? [[current, label], ...list] : list);
+  const statusOpts = keep(CONFIG.statuses.map((s) => [s.id, s.label]), draft.status, `${draft.status} (not a column now)`);
+  const priorityOpts = keep(CONFIG.priorities.map((p) => [p.id, p.label]), draft.priority, `${draft.priority} (removed)`);
+  // Only people who can see the task's space: anyone else would never see a task assigned to them.
+  const assigneeOpts = (space, current) => keep(
+    S.team.filter((p) => p.role !== 'guest' && personCanSee(p, space)).map((p) => [p.email, p.name]),
+    current, `${person(current)?.name || current} (${S.team.some((p) => p.email === current) ? "can't see this space" : 'not on the team'})`);
+  const assigneeHtml = (space, current) => opt('', 'Unassigned', current) + assigneeOpts(space, current).map(([v, l]) => opt(v, l, current)).join('');
 
   const panel = openModal(`
     <form class="task-form">
@@ -204,10 +214,10 @@ export function openTask(id, onClose) {
       <div class="panel-body">
         <input class="title-input" name="title" placeholder="Task name" value="${esc(draft.title)}" aria-label="Task name" required ${dis}>
         <div class="field-grid">
-          <label>Status<select class="input" name="status" ${dis}>${CONFIG.statuses.map((s) => opt(s.id, s.label, draft.status)).join('')}</select></label>
-          <label>Assignee<select class="input" name="assignee" ${dis}>${opt('', 'Unassigned', draft.assignee)}${S.team.filter((p) => p.role !== 'guest').map((p) => opt(p.email, p.name, draft.assignee)).join('')}</select></label>
+          <label>Status<select class="input" name="status" ${dis}>${statusOpts.map(([v, l]) => opt(v, l, draft.status)).join('')}</select></label>
+          <label>Assignee<select class="input" name="assignee" ${dis}>${assigneeHtml(draft.space, draft.assignee)}</select></label>
           <label>Due<input class="input" type="date" name="due" value="${esc(draft.due)}" ${dis}></label>
-          <label>Priority<select class="input" name="priority" ${dis}>${opt('', 'None', draft.priority)}${CONFIG.priorities.map((p) => opt(p.id, p.label, draft.priority)).join('')}</select></label>
+          <label>Priority<select class="input" name="priority" ${dis}>${opt('', 'None', draft.priority)}${priorityOpts.map(([v, l]) => opt(v, l, draft.priority)).join('')}</select></label>
           <label>Space<select class="input" name="space" ${dis}>${can.admin() || S.me.spaces === '*' || (!isNew && !draft.space) ? opt('', 'General', draft.space) : ''}${S.spaces.map((s) => opt(s.id, s.name, draft.space)).join('')}</select></label>
         </div>
         <div class="md-field">
@@ -236,6 +246,8 @@ export function openTask(id, onClose) {
 
   const form = $('form', panel);
   const f = form.elements;
+  // Changing the space updates who can be assigned.
+  f.space.onchange = () => { f.assignee.innerHTML = assigneeHtml(f.space.value, f.assignee.value); };
   const formFields = () => ({
     title: f.title.value.trim(), status: f.status.value, assignee: f.assignee.value,
     due: f.due.value, priority: f.priority.value, space: f.space.value, description: f.description.value,

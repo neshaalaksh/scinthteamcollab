@@ -1,4 +1,4 @@
-import { S, act, can, spaceName } from '../state.js';
+import { S, act, can, spaceName, spaceById } from '../state.js';
 import { $, $$, esc, avatar, timeAgo, openModal, confirmBox, toast } from '../util.js';
 
 const ROLES = {
@@ -29,7 +29,7 @@ export default {
             <tbody>${people.map((p) => `<tr>
               <td><div class="row">${avatar(p, 32)}<div><b>${esc(p.name)}</b><div class="small muted">${esc(p.email)}</div></div></div></td>
               <td><span class="role role-${p.role}">${ROLES[p.role]?.label || p.role}</span></td>
-              <td>${!p.spaces || p.spaces === '*' ? '<span class="chip">All spaces</span>' : p.spaces.split(',').map((s) => `<span class="chip">${esc(spaceName(s))}</span>`).join(' ')}</td>
+              <td>${!p.spaces || p.spaces === '*' ? '<span class="chip">All spaces</span>' : spacesChips(p.spaces)}</td>
               <td class="muted">${p.lastActive ? esc(timeAgo(p.lastActive)) : 'Never'}</td>
               <td>${editable(p) ? `<button class="btn small" data-edit="${esc(p.email)}">Edit</button>` : ''}</td>
             </tr>`).join('')}</tbody>
@@ -47,6 +47,14 @@ export default {
     $$('[data-edit]', el).forEach((b) => b.onclick = () => editPerson(S.team.find((p) => p.email === b.dataset.edit), rerender));
   },
 };
+
+// A deleted space stays in people's lists (so their access doesn't widen); show it as such.
+function spacesChips(list) {
+  const ids = list.split(',').map((s) => s.trim()).filter(Boolean);
+  const live = ids.filter((id) => spaceById(id));
+  return live.map((s) => `<span class="chip">${esc(spaceName(s))}</span>`).join(' ')
+    || '<span class="chip">General only</span> <span class="small muted">(their space was deleted)</span>';
+}
 
 function editable(p) {
   if (p.role === 'owner') return false;
@@ -94,6 +102,8 @@ function editPerson(p, done) {
     const spaces = fd.get('all') ? '*' : fd.getAll('space');
     if (spaces !== '*' && !spaces.length) return toast('Pick at least one space.', 'error');
     if (p && p.role !== fd.get('role') && p.email === S.me.email) return toast("You can't change your own role.", 'error');
+    const email = String(fd.get('email') || '').trim().toLowerCase();
+    if (!p && S.team.some((x) => x.email === email)) return toast('That person is already on the team. Use Edit next to their name.', 'error');
     const saved = await act('team.save', { email: fd.get('email'), name: fd.get('name'), role: fd.get('role'), spaces });
     if (!saved) return;
     S.team = p ? S.team.map((x) => (x.email === saved.email ? saved : x)) : [...S.team, saved];
@@ -124,7 +134,15 @@ function manageSpaces(done) {
   };
   $$('[data-del]', box).forEach((b) => b.onclick = async () => {
     const s = S.spaces.find((x) => x.id === b.dataset.del);
-    if (!(await confirmBox(`Delete the space "${s.name}"? Its tasks, docs and sheets stay, with no space.`))) return;
+    // Things in a deleted space move to General, which every member can see: say so, with numbers.
+    const n = (list) => list.filter((x) => x.space === s.id).length;
+    const counts = [[n(S.tasks), 'task'], [n(S.docs), 'doc'], [n(S.sheets), 'sheet'], [n(S.routines), 'routine']]
+      .filter(([c]) => c).map(([c, w]) => `${c} ${w}${c === 1 ? '' : 's'}`);
+    const guests = S.team.filter((p) => p.role === 'guest' && p.spaces.split(',').map((x) => x.trim()).includes(s.id)).map((p) => p.name);
+    const msg = `Delete the space "${s.name}"?`
+      + (counts.length ? ` Its ${counts.join(', ')} will move to General, where every member can see them.` : '')
+      + (guests.length ? ` ${guests.join(', ')} (guest${guests.length === 1 ? '' : 's'}) will lose access to them.` : '');
+    if (!(await confirmBox(msg))) return;
     if (await act('spaces.delete', { id: s.id })) { S.spaces = S.spaces.filter((x) => x.id !== s.id); box.close(); manageSpaces(done); }
   });
 }
