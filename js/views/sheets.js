@@ -114,7 +114,7 @@ export default {
                 <span class="drive-name" role="cell">${sheetIcon(20)}<span class="trunc">${esc(s.name)}</span></span>
                 <span class="muted" role="cell">${esc(spaceName(s.space))}</span>
                 <span class="drive-owner" role="cell">${who ? `${avatar(who, 22)}<span class="trunc">${esc(who.email === S.me?.email ? 'me' : who.name)}</span>` : ''}</span>
-                <span class="drive-end" role="cell"><span class="muted">${esc(timeAgo(s.addedAt))}</span>${starBtn(s)}${pinBtn(s)}${editBtn(s)}</span>
+                <span class="drive-end" role="cell"><span class="muted">${esc(timeAgo(s.addedAt))}</span><span class="drive-actions">${starBtn(s)}${pinBtn(s)}${editBtn(s)}</span></span>
               </div>`;
             }).join('')}
           </div>`;
@@ -123,7 +123,7 @@ export default {
           <div class="drive-grid">
             ${shown.map((s) => `
               <div class="drive-card link" data-open="${esc(s.id)}" title="${esc(s.name)}">
-                <div class="drive-card-top">${sheetIcon(18)}<span class="trunc grow">${esc(s.name)}</span>${starBtn(s)}${pinBtn(s)}${editBtn(s)}</div>
+                <div class="drive-card-top">${sheetIcon(18)}<span class="trunc grow">${esc(s.name)}</span><span class="drive-actions">${starBtn(s)}${pinBtn(s)}${editBtn(s)}</span></div>
                 ${thumb()}
                 <div class="drive-card-foot small muted"><span class="trunc">${esc(spaceName(s.space))}</span><span>${esc(timeAgo(s.addedAt))}</span></div>
               </div>`).join('')}

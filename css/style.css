@@ -613,3 +613,7 @@ a.drive-row:hover, .drive-row.link:hover { background: var(--sunk); }
 @media print { .review-panel { display: none !important; } .comment-hit { background: none; border: 0; } }
 .sheet-star, .sheet-pin { width: 28px; height: 28px; border: 0; background: none; border-radius: 0; padding: 0; flex: none; display: inline-flex; align-items: center; justify-content: center; }
 .sheet-star:hover, .sheet-pin:hover { background: none; opacity: .75; }
+.drive-actions { display: inline-flex; align-items: center; gap: 0; flex: none; }
+.drive-actions .sheet-star, .drive-actions .sheet-pin { width: 24px; }
+.drive-actions .star-ico, .drive-actions .pin-ico { width: 18px; height: 18px; }
+.drive-actions .drive-more { width: 24px; }
