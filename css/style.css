@@ -271,13 +271,17 @@ span.ev { cursor: default; }
 /* ---- daily */
 .daily-wrap { max-width: 1100px; }
 .routine-table td:first-child { min-width: 200px; }
+.routine-table th:not(:first-child), .routine-table td:not(:first-child) { width: 88px; text-align: center; }
+.routine-table .tick { display: flex; margin: 0 auto; }
+.daily-wrap .pad { padding: 12px 14px; border-top: 1px solid var(--line-soft); }
 .tick {
   width: 30px; height: 30px; border-radius: 8px; border: 2px solid var(--line); background: var(--panel); cursor: pointer;
   font-weight: 700; color: #fff; display: inline-flex; align-items: center; justify-content: center;
 }
 .tick.on { background: var(--good); border-color: var(--good); }
 .tick:disabled { cursor: default; opacity: 0.6; }
-.tick-time { font-size: 11px; color: var(--muted); min-height: 14px; }
+.tick-time { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.tick-time:empty { display: none; }
 .routine-item { padding: 10px 0; border-bottom: 1px solid var(--line-soft); }
 
 /* ---- history */
