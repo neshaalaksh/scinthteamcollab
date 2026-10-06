@@ -1,8 +1,9 @@
 // Calls. Guests (clients) ask for a call and see their requests; the owner and admins
-// schedule them (date, time, length, meeting link) or decline them. Scheduled calls show
-// on the Calendar for that guest and for the owner and admins.
+// schedule them (date, time, length, meeting link, who from the team joins) or decline them.
+// Scheduled calls show on the Calendar for that guest, the invited team members, and the
+// owner and admins. Invited members see their calls here too (read-only).
 
-import { S, act, can, person, spaceName } from '../state.js';
+import { S, act, can, person, spaceName, spaceSuffix } from '../state.js';
 import { $, $$, esc, fmtTime, timeAgo, isoDate, openModal, confirmBox, toast } from '../util.js';
 
 const STATUS = {
@@ -19,16 +20,15 @@ const when = (c) => {
   const end = new Date(start.getTime() + (c.duration || 0) * 60000);
   return `${start.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}, ${fmtTime(start)} to ${fmtTime(end)}`;
 };
+const names = (emails) => emails.map((e) => (e === S.me.email ? 'you' : person(e)?.name || e)).join(', ');
+const withLine = (c) => (c.attendees?.length ? `<div class="small muted">With ${esc(names(c.attendees))}</div>` : '');
 const upcoming = (c) => c.status === 'scheduled' && new Date(c.meetingAt).getTime() + (c.duration || 0) * 60000 > Date.now();
 
 export default {
   title: () => (can.guest() ? 'Request a call' : 'Calls'),
   async render(el) {
     if (can.guest()) return renderGuest(el);
-    if (!can.admin()) {
-      el.innerHTML = '<div class="empty">Calls with clients are handled by the owner and admins.</div>';
-      return;
-    }
+    if (!can.admin()) return renderInvited(el);
     return renderAdmin(el, () => this.render(el));
   },
 };
@@ -57,7 +57,7 @@ function renderGuest(el) {
           const [label, cls] = STATUS[c.status] || [c.status, 'muted'];
           return `<div class="card call-card">
             <div class="row"><b class="grow">${esc(c.topic)}</b><span class="status-pill ${cls}">${label}</span></div>
-            ${c.status === 'scheduled' ? `<div><b>${esc(when(c))}</b></div>${c.link ? `<a class="btn small primary" href="${esc(c.link)}" target="_blank" rel="noopener">Join the call ↗</a>` : ''}` : ''}
+            ${c.status === 'scheduled' ? `<div><b>${esc(when(c))}</b></div>${withLine(c)}${c.link ? `<a class="btn small primary" href="${esc(c.link)}" target="_blank" rel="noopener">Join the call ↗</a>` : ''}` : ''}
             ${c.preferred && c.status === 'requested' ? `<div class="small muted">You suggested: ${esc(c.preferred)}</div>` : ''}
             ${c.reply ? `<div class="small">${esc(c.reply)}</div>` : ''}
             <div class="row small muted">Asked ${esc(timeAgo(c.createdAt))}<span class="grow"></span>
@@ -85,6 +85,26 @@ function renderGuest(el) {
   });
 }
 
+// ---- members: the calls they're invited to
+
+function renderInvited(el) {
+  const mine = S.calls.filter((c) => c.status === 'scheduled' && c.attendees?.includes(S.me.email));
+  const next = mine.filter(upcoming).sort((a, b) => a.meetingAt.localeCompare(b.meetingAt));
+  const past = mine.filter((c) => !upcoming(c)).sort((a, b) => b.meetingAt.localeCompare(a.meetingAt));
+  const card = (c) => `<div class="card call-card">
+      <div class="row"><b class="grow">${esc(c.topic)}</b><span class="status-pill ${upcoming(c) ? 'good' : 'muted'}">${upcoming(c) ? 'Upcoming' : 'Done'}</span></div>
+      <div><b>${esc(when(c))}</b></div>
+      <div class="small muted">Client: ${esc(person(c.email)?.name || c.email)}${esc(spaceSuffix(c.space))}${c.attendees.length > 1 ? ` · with ${esc(names(c.attendees.filter((e) => e !== S.me.email)))}` : ''}</div>
+      ${c.notes ? `<div class="small"><b>Notes:</b> ${esc(c.notes)}</div>` : ''}
+      ${c.link && upcoming(c) ? `<div><a class="btn small primary" href="${esc(c.link)}" target="_blank" rel="noopener">Join the call ↗</a></div>` : ''}
+    </div>`;
+  el.innerHTML = `<div class="stack calls-admin">
+    <p class="muted">Client calls you're invited to. They also show on your Calendar. The owner and admins schedule them.</p>
+    ${next.map(card).join('') || '<div class="empty">No upcoming calls for you.</div>'}
+    ${past.length ? `<h2>Past</h2>${past.map(card).join('')}` : ''}
+  </div>`;
+}
+
 // ---- owner and admins
 
 function renderAdmin(el, rerender) {
@@ -103,7 +123,7 @@ function renderAdmin(el, rerender) {
     return `<div class="card call-card">
       <div class="row"><b class="grow">${esc(c.topic)}</b><span class="status-pill ${cls}">${c.status === 'scheduled' && !upcoming(c) ? 'Done' : label}</span></div>
       <div class="small muted">${esc(who?.name || c.email)} · ${esc(spaceName(c.space))} · asked ${esc(timeAgo(c.createdAt))}${c.handledBy ? ` · handled by ${esc(person(c.handledBy)?.name || c.handledBy)}` : ''}</div>
-      ${c.status === 'scheduled' ? `<div><b>${esc(when(c))}</b>${c.link ? ` · <a href="${esc(c.link)}" target="_blank" rel="noopener">meeting link ↗</a>` : ''}</div>` : ''}
+      ${c.status === 'scheduled' ? `<div><b>${esc(when(c))}</b>${c.link ? ` · <a href="${esc(c.link)}" target="_blank" rel="noopener">meeting link ↗</a>` : ''}</div>${c.attendees?.length ? `<div class="small"><b>Invited:</b> ${esc(names(c.attendees))}</div>` : ''}` : ''}
       ${c.preferred ? `<div class="small"><b>Suggested times:</b> ${esc(c.preferred)}</div>` : ''}
       ${c.notes ? `<div class="small"><b>Notes:</b> ${esc(c.notes)}</div>` : ''}
       ${c.reply ? `<div class="small"><b>Your message:</b> ${esc(c.reply)}</div>` : ''}
@@ -132,6 +152,9 @@ function schedule(c, done) {
         <label>Time <span class="muted small">(your time)</span><input class="input" type="time" name="time" required value="${at ? `${pad(at.getHours())}:${pad(at.getMinutes())}` : ''}"></label>
         <label>Length<select class="input" name="duration">${[15, 30, 45, 60, 90, 120].map((m) => `<option value="${m}" ${(c.duration || 30) === m ? 'selected' : ''}>${m} min</option>`).join('')}</select></label>
       </div>
+      <fieldset><legend>Who from the team joins</legend><div class="row wrap">
+        ${S.team.filter((p) => p.role !== 'guest').map((p) => `<label class="pill-check"><input type="checkbox" name="who" value="${esc(p.email)}" ${(c.status === 'scheduled' ? c.attendees.includes(p.email) : p.email === S.me.email) ? 'checked' : ''}> ${esc(p.name)}</label>`).join('')}
+      </div><p class="small muted">They see the call on their Calendar and Calls page.</p></fieldset>
       <label>Meeting link <span class="muted small">(Google Meet, Zoom…)</span><input class="input" name="link" type="url" placeholder="https://meet.google.com/…" value="${esc(c.link)}"></label>
       <label>Message to the client <span class="muted small">(optional)</span><textarea class="input" name="reply" rows="2" maxlength="1000">${esc(c.reply)}</textarea></label>
       <div class="row end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div>
@@ -145,6 +168,7 @@ function schedule(c, done) {
     if (f.link.value && !/^https:\/\//.test(f.link.value.trim())) return toast('The meeting link must start with https://', 'error');
     const saved = await act('calls.update', { id: c.id, fields: {
       status: 'scheduled', meetingAt: start.toISOString(), duration: Number(f.duration.value), link: f.link.value, reply: f.reply.value,
+      attendees: [...form.querySelectorAll('input[name=who]:checked')].map((x) => x.value),
     } });
     if (!saved) return;
     box.close();

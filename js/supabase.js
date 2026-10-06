@@ -34,7 +34,7 @@ const spaceOut = (s) => ({ id: s.id, name: s.name, color: s.color, createdAt: s.
 
 const taskOut = (t) => ({
   id: t.id, title: t.title, description: t.description, status: t.status,
-  assignee: str(t.assignee), due: str(t.due), priority: str(t.priority), space: t.space || MAIN_SPACE, client: str(t.client),
+  assignee: str(t.assignee), due: str(t.due), priority: str(t.priority), space: t.space || MAIN_SPACE,
   checklist: t.checklist || [], comments: t.comments || [], order: t.sort_order || 0,
   createdAt: t.created_at, createdBy: str(t.created_by), updatedAt: t.updated_at,
   completedAt: str(t.completed_at), completedBy: str(t.completed_by),
@@ -71,7 +71,13 @@ const fileOut = (f) => ({
 const callOut = (c) => ({
   id: c.id, email: c.email, space: c.space || MAIN_SPACE, topic: c.topic, notes: c.notes, preferred: c.preferred,
   status: c.status, meetingAt: str(c.meeting_at), duration: c.duration_min || 0, link: str(c.meeting_link),
-  reply: c.reply, handledBy: str(c.handled_by), createdAt: c.created_at, updatedAt: c.updated_at,
+  reply: c.reply, handledBy: str(c.handled_by), attendees: c.attendees || [], createdAt: c.created_at, updatedAt: c.updated_at,
+});
+// A calendar event or deadline. time '' = all day; client = the guest it is for.
+const eventOut = (e) => ({
+  id: e.id, title: e.title, kind: e.kind, date: e.date, time: e.time ? String(e.time).slice(0, 5) : '',
+  duration: e.duration_min || 0, notes: e.notes, client: str(e.client), attendees: e.attendees || [],
+  space: e.space || MAIN_SPACE, createdBy: str(e.created_by), createdAt: e.created_at,
 });
 const activityOut = (a) => ({
   at: a.at, email: a.email, action: a.action, type: a.type, itemId: str(a.item_id),
@@ -79,7 +85,7 @@ const activityOut = (a) => ({
 });
 
 // Columns where the screens send '' for "none".
-const NULLABLE = new Set(['assignee', 'due', 'priority', 'client']);
+const NULLABLE = new Set(['assignee', 'due', 'priority']);
 
 // Copies only the given keys, renaming app names to column names.
 // Every item has a space: '' (or nothing picked) means the main space.
@@ -142,7 +148,7 @@ const ACTIONS = {
     if (!meRow) fail(`You are not on this team yet. Ask the owner to add ${me}.`, 'NOT_MEMBER');
     sb.rpc('touch_last_active').then(() => {}, () => {});
     // The database returns only what this person may see (guests get no tasks, docs or sheets, and so on).
-    const [team, spaces, tasks, routines, docs, sheets, files, calls] = await Promise.all([
+    const [team, spaces, tasks, routines, docs, sheets, files, calls, events] = await Promise.all([
       sb.from('team').select('*').order('name'),
       sb.from('spaces').select('*').order('name'),
       allRows((a, b) => sb.from('tasks').select('*').order('id').range(a, b)),
@@ -151,6 +157,7 @@ const ACTIONS = {
       allRows((a, b) => sb.from('sheet_links').select('*').order('sort_order').order('id').range(a, b)),
       allRows((a, b) => sb.from('drive_files').select('*').order('uploaded_at', { ascending: false }).order('id').range(a, b)),
       allRows((a, b) => sb.from('call_requests').select('*').order('created_at', { ascending: false }).order('id').range(a, b)),
+      allRows((a, b) => sb.from('events').select('*').order('date').order('id').range(a, b)),
     ]);
     return {
       me: personOut(meRow),
@@ -162,6 +169,7 @@ const ACTIONS = {
       sheets: sheets.map(sheetOut),
       files: files.map(fileOut),
       calls: calls.map(callOut),
+      events: events.map(eventOut),
     };
   },
 
@@ -171,7 +179,7 @@ const ACTIONS = {
   async 'tasks.save'(me, d) {
     const row = columns(d.fields || {}, {
       title: 'title', description: 'description', status: 'status', assignee: 'assignee', due: 'due',
-      priority: 'priority', space: 'space', checklist: 'checklist', order: 'sort_order', client: 'client',
+      priority: 'priority', space: 'space', checklist: 'checklist', order: 'sort_order',
     });
     if (row.title !== undefined) row.title = String(row.title).trim().slice(0, 300);
     if (!d.id) {
@@ -324,14 +332,35 @@ const ACTIONS = {
     if (f.duration !== undefined) row.duration_min = Number(f.duration) || null;
     if (f.link !== undefined) row.meeting_link = String(f.link || '').trim() || null;
     if (f.reply !== undefined) row.reply = String(f.reply || '').trim().slice(0, 1000);
+    if (f.attendees !== undefined) row.attendees = f.attendees || [];
     if (row.meeting_link && !/^https:\/\//.test(row.meeting_link)) fail('The meeting link must start with https://');
     return callOut(one(check(await sb.from('call_requests').update(row).eq('id', d.id).select(), 'You cannot change this call.')));
   },
 
-  // A guest's own deadlines (title and date only).
-  async 'client.deadlines'() {
-    const rows = check(await sb.rpc('client_deadlines'));
-    return rows.map((t) => ({ id: t.id, title: t.title, due: t.due, done: !!t.done }));
+  // ---- calendar events and deadlines
+  async 'events.save'(me, d) {
+    const f = d.fields || {};
+    const row = {};
+    if (f.title !== undefined) row.title = String(f.title || '').trim().slice(0, 200);
+    if (f.kind !== undefined) row.kind = f.kind === 'deadline' ? 'deadline' : 'event';
+    if (f.date !== undefined) row.date = f.date;
+    if (f.time !== undefined) row.time = f.time || null;
+    if (f.duration !== undefined) row.duration_min = Number(f.duration) || null;
+    if (f.notes !== undefined) row.notes = String(f.notes || '').slice(0, 2000);
+    if (f.client !== undefined) row.client = f.client || null;
+    if (f.attendees !== undefined) row.attendees = f.attendees || [];
+    if (f.space !== undefined) row.space = f.space || MAIN_SPACE;
+    if (!d.id) {
+      if (!row.title) fail('Give it a name.');
+      if (!row.date) fail('Pick a date.');
+      return eventOut(one(check(await sb.from('events').insert(row).select())));
+    }
+    return eventOut(one(check(await sb.from('events').update(row).eq('id', d.id).select(), 'Only the person who added it, or an admin, can change this.')));
+  },
+
+  async 'events.delete'(me, d) {
+    check(await sb.from('events').delete().eq('id', d.id).select('id'), 'Only the person who added it, or an admin, can delete this.');
+    return { id: d.id };
   },
 
   // ---- team and spaces

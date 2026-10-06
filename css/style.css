@@ -653,3 +653,7 @@ a.drive-row:hover, .drive-row.link:hover { background: var(--sunk); }
 .status-pill.bad { background: var(--bad-soft); color: var(--bad); }
 .status-pill.muted { background: var(--sunk); color: var(--muted); }
 @media (max-width: 860px) { .calls-grid { grid-template-columns: minmax(0, 1fr); } }
+.ev-event { background: var(--sunk); color: var(--ink-2); }
+.ev-deadline { background: var(--warn-soft); color: var(--warn); font-weight: 700; }
+.kind-pick { align-self: flex-start; }
+.kind-pick label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; cursor: pointer; }

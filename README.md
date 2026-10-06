@@ -14,14 +14,14 @@ Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, a s
 | Screen | What it does |
 |---|---|
 | Home | Your routines today, your tasks, what's due this week, pinned docs and sheets, and (owner and admins) the team's progress |
-| Tasks | Board (drag cards between and within columns) or list. Assignee, due date, priority, space, client, checklist, comments. Saves who completed it and when. Owner and admins see every task; members see theirs and the ones they gave out. |
-| Calendar | Month or week view of tasks due and done, routine ticks per day, and scheduled client calls. Clients see only their own calls and deadlines. |
+| Tasks | Board (drag cards between and within columns) or list. Assignee, due date, priority, space, checklist, comments. Saves who completed it and when. Owner and admins see every task; members see theirs and the ones they gave out. |
+| Calendar | Month or week view of tasks due and done, routine ticks per day, scheduled client calls, and events and deadlines (anyone on the team adds them, for a client and/or inviting teammates). Clients see only their own calls and the events made for them. |
 | Daily | Repeating routines with a tick per person (time saved). Members see their own; owner and admins everyone's. |
 | History | Everything done, grouped by day, with charts. Owner and admins only. |
 | Docs | A Google Docs style editor: several people type in the same doc at once and see each other's cursors. Fonts, sizes, colours, alignment, lists, checklists, tables, images, find & replace, print/PDF. Type `/` for blocks and to embed a Google Sheet, Google Doc, task, Slides, YouTube and more. Keeps old versions. |
 | Sheets | Your team's key Google Sheets in tabs, each editable or read-only |
 | Drive | Files for the team and clients, stored in Google Drive. Clients upload too, and delete only their own. |
-| Calls | Clients ask for a call; the owner and admins schedule it (it lands on both calendars) or decline it |
+| Calls | Clients ask for a call; the owner and admins schedule it, inviting teammates (it lands on everyone's calendar), or decline it. Invited members see their calls here. |
 | Team & roles | The Owner and Admins add people and set roles and spaces |
 
 **Spaces:** **Scinth** is the team's own space; every other space is for one client. Clients are **guests**: they see only Drive, Calendar and "Request a call" for their space.

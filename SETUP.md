@@ -12,7 +12,7 @@ Until you finish, the site runs in **demo mode**: fake data that stays in your o
 ## Step 1: Make the database (5 min)
 
 - [ ] At [supabase.com/dashboard](https://supabase.com/dashboard), click **New project**. Pick the region closest to your team.
-- [ ] Open **SQL Editor**. Paste and run each file in [`supabase/migrations`](supabase/migrations), in order (`…01_tables`, `…02_security`, `…03_triggers`, `…04_rpc`, `…05_live_docs`, `…05_sheet_pinned`, `…06_search_and_ticks`, `…01_roles_spaces_drive_calls`). `…05_live_docs` turns on live co-editing in Docs; `…01_roles_spaces_drive_calls` sets up the roles, the Scinth space, Drive and calls. Already set up? Just run the ones you haven't run yet, in order.
+- [ ] Open **SQL Editor**. Paste and run each file in [`supabase/migrations`](supabase/migrations), in order (`…01_tables`, `…02_security`, `…03_triggers`, `…04_rpc`, `…05_live_docs`, `…05_sheet_pinned`, `…06_search_and_ticks`, `…01_roles_spaces_drive_calls`, `…02_events_invites_guest_team`). `…05_live_docs` turns on live co-editing in Docs; `…01_roles_spaces_drive_calls` sets up the roles, the Scinth space, Drive and calls; `…02_events_invites_guest_team` adds calendar events and call invites. Already set up? Just run the ones you haven't run yet, in order.
 - [ ] Still in the SQL Editor, make yourself the Owner:
 
   ```sql
@@ -77,9 +77,11 @@ What each role sees:
 
 | | Owner / Admin | Member | Guest (client) |
 |---|---|---|---|
-| Pages | All, including History, Calls and Team | Home, Tasks, Calendar, Daily, Docs, Sheets, Drive | Drive, Calendar, Request a call |
-| Tasks | Everyone's | Assigned to them, or made by them | None; only their deadlines on the Calendar |
+| Pages | All, including History, Calls and Team | Home, Tasks, Calendar, Daily, Docs, Sheets, Drive, Calls (the ones they're invited to) | Drive, Calendar, Request a call |
+| Tasks | Everyone's | Assigned to them, or made by them | None |
+| Calendar events | All | The ones they made or are invited to | The ones made for them |
 | Routines | Everyone's | Their own | None |
+| People | Everyone | Everyone | The team, but not other clients |
 
 ## Step 7: Turn on Drive uploads (15 min)
 

@@ -16,6 +16,7 @@ export const S = {
   sheets: [],
   files: [],
   calls: [],
+  events: [],   // calendar events and deadlines
   space: lsGet('teamspace.space', 'all'),
   view: 0,   // bumped on every page render, so a slow render can tell it has been replaced
 };
@@ -68,9 +69,10 @@ export const can = {
 };
 
 // The pages each role has, in menu order. Guests are clients: Drive, Calendar and calls only.
+// Members' Calls page lists the calls they're invited to.
 const VIEWS = {
   guest: ['drive', 'calendar', 'calls'],
-  member: ['home', 'tasks', 'calendar', 'daily', 'docs', 'sheets', 'drive'],
+  member: ['home', 'tasks', 'calendar', 'daily', 'docs', 'sheets', 'drive', 'calls'],
   admin: ['home', 'tasks', 'calendar', 'daily', 'history', 'docs', 'sheets', 'drive', 'calls', 'team'],
 };
 export function allowedViews() {
@@ -104,6 +106,10 @@ export function spaceById(id) {
 export function spaceName(id) {
   return spaceById(id || MAIN_SPACE)?.name || (id || 'Scinth');
 }
+
+// " · Space name" for a space this person can see, or nothing (e.g. a member invited to a call
+// in a client space they don't have: better no label than its internal id).
+export const spaceSuffix = (id) => { const s = spaceById(id || MAIN_SPACE); return s ? ` · ${s.name}` : ''; };
 
 // Where a new item goes: the space picked in the sidebar, else the main space.
 export const defaultSpace = () => (S.space !== 'all' && can.edit(S.space) ? S.space : MAIN_SPACE);

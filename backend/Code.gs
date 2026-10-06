@@ -18,7 +18,7 @@ var SCHEMA = {
   Team: ['email', 'name', 'role', 'spaces', 'addedAt', 'lastActive'],
   Spaces: ['id', 'name', 'color', 'createdAt'],
   Tasks: ['id', 'title', 'description', 'status', 'assignee', 'due', 'priority', 'space',
-    'checklist', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'completedAt', 'completedBy', 'order', 'client'],
+    'checklist', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'completedAt', 'completedBy', 'order'],
   Routines: ['id', 'title', 'notes', 'assignees', 'days', 'space', 'active', 'createdAt', 'createdBy', 'removedAt', 'history'],
   DailyChecks: ['date', 'routineId', 'email', 'at', 'by'],
   Updates: ['date', 'email', 'yesterday', 'today', 'blockers', 'at'],
@@ -29,7 +29,8 @@ var SCHEMA = {
   Activity: ['at', 'email', 'action', 'type', 'itemId', 'title', 'space', 'detail'],
   DriveFiles: ['id', 'name', 'driveId', 'url', 'mime', 'size', 'space', 'uploadedBy', 'uploadedAt'],
   CallRequests: ['id', 'email', 'space', 'topic', 'notes', 'preferred', 'status', 'meetingAt', 'duration',
-    'link', 'reply', 'handledBy', 'createdAt', 'updatedAt'],
+    'link', 'reply', 'handledBy', 'createdAt', 'updatedAt', 'attendees'],
+  Events: ['id', 'title', 'kind', 'date', 'time', 'duration', 'notes', 'client', 'attendees', 'space', 'createdBy', 'createdAt', 'updatedAt'],
 };
 
 var ROLE_RANK = { guest: 1, member: 2, admin: 3, owner: 4 };
@@ -149,6 +150,27 @@ function taskVisible(ctx, t) {
   return isAdmin(ctx) || (isMember(ctx) && canSee(ctx, t.space) && (t.assignee === ctx.email || t.createdBy === ctx.email));
 }
 
+// Calls: owner and admins see all; the guest who asked sees theirs; invited members see theirs.
+function callVisible(ctx, c) {
+  return isAdmin(ctx) || c.email === ctx.email || (isMember(ctx) && listOf(c.attendees).indexOf(ctx.email) >= 0);
+}
+
+// Events: owner and admins see all; members the ones they made or are invited to; guests the ones for them.
+function eventVisible(ctx, e) {
+  if (isAdmin(ctx)) return true;
+  if (isMember(ctx)) return e.createdBy === ctx.email || listOf(e.attendees).indexOf(ctx.email) >= 0;
+  return e.client === ctx.email;
+}
+
+// Invited people must be on the team and not guests.
+function checkAttendees(list) {
+  var team = table('Team');
+  var emails = (Array.isArray(list) ? list : listOf(list)).map(function (x) { return String(x).trim().toLowerCase(); }).filter(String);
+  var bad = emails.filter(function (e) { return !find(team, function (p) { return p.email === e && p.role !== 'guest'; }); });
+  if (bad.length) fail('Only people on the team can be invited (not ' + bad.join(', ') + ').');
+  return emails.filter(function (e, i) { return emails.indexOf(e) === i; }).join(',');
+}
+
 // Is (or was) this routine for me? Past assignments count, so old ticks keep their routine.
 function routineMine(ctx, r) {
   if (!r.assignees || r.assignees === 'everyone' || listOf(r.assignees).indexOf(ctx.email) >= 0) return true;
@@ -169,9 +191,9 @@ var ACTIONS = {
     var guest = ctx.me.role === 'guest';
     return {
       me: publicPerson(ctx.me),
-      // Guests see themselves plus the owner and admins; everyone else sees the whole team.
+      // Guests see the team and themselves, but not other guests (one client never sees another).
       team: table('Team').rows.filter(function (p) {
-        return !guest || p.email === ctx.email || p.role === 'owner' || p.role === 'admin';
+        return !guest || p.email === ctx.email || p.role !== 'guest';
       }).map(publicPerson),
       spaces: table('Spaces').rows.filter(function (s) { return canSee(ctx, s.id); }).map(strip),
       tasks: table('Tasks').rows.filter(function (t) { return taskVisible(ctx, t); }).map(taskOut),
@@ -179,23 +201,18 @@ var ACTIONS = {
       docs: isMember(ctx) ? table('Docs').rows.filter(function (d) { return canSee(ctx, d.space); }).map(docMeta) : [],
       sheets: isMember(ctx) ? table('SheetLinks').rows.filter(function (s) { return canSee(ctx, s.space); }).map(sheetOut) : [],
       files: table('DriveFiles').rows.filter(function (f) { return canSee(ctx, f.space); }).map(fileOut),
-      calls: table('CallRequests').rows.filter(function (c) { return isAdmin(ctx) || c.email === ctx.email; }).map(callOut),
+      calls: table('CallRequests').rows.filter(function (c) { return callVisible(ctx, c); }).map(callOut),
+      events: table('Events').rows.filter(function (e) { return eventVisible(ctx, e); }).map(eventOut),
     };
   } },
 
   // ---- tasks
   'tasks.save': { write: true, fn: function (ctx, d) {
     var t = table('Tasks');
-    var fields = pick(d.fields || {}, ['title', 'description', 'status', 'assignee', 'due', 'priority', 'space', 'checklist', 'order', 'client']);
+    var fields = pick(d.fields || {}, ['title', 'description', 'status', 'assignee', 'due', 'priority', 'space', 'checklist', 'order']);
     if (fields.checklist !== undefined) fields.checklist = JSON.stringify(fields.checklist || []);
     if (fields.title !== undefined) fields.title = String(fields.title).trim().slice(0, 300);
     if (fields.space !== undefined) fields.space = fields.space || MAIN_SPACE;
-    if (fields.client !== undefined) {
-      fields.client = String(fields.client || '').trim().toLowerCase();
-      if (fields.client && !find(table('Team'), function (p) { return p.email === fields.client && p.role === 'guest'; })) {
-        fail('Pick the client from the list (clients are guests on the team).');
-      }
-    }
 
     if (!d.id) {
       var space = fields.space || MAIN_SPACE;
@@ -258,13 +275,6 @@ var ACTIONS = {
     update(t, row);
     log(ctx, 'commented', 'task', row, text.slice(0, 120));
     return taskOut(row);
-  } },
-
-  // A guest's own deadlines: title and date only.
-  'client.deadlines': { fn: function (ctx) {
-    return table('Tasks').rows
-      .filter(function (t) { return t.client === ctx.email && t.due; })
-      .map(function (t) { return { id: t.id, title: t.title, due: t.due, done: t.status === DONE_STATUS }; });
   } },
 
   // ---- routines (admins set them up; each person ticks their own)
@@ -518,6 +528,7 @@ var ACTIONS = {
     if (f.duration !== undefined) next.duration = Number(f.duration) || '';
     if (f.link !== undefined) next.link = String(f.link || '').trim();
     if (f.reply !== undefined) next.reply = str(f.reply, 1000).trim();
+    if (f.attendees !== undefined) next.attendees = checkAttendees(f.attendees);
     if (['requested', 'scheduled', 'declined', 'cancelled'].indexOf(next.status) < 0) fail('That is not a call status.');
     if (next.link && !/^https:\/\//.test(next.link)) fail('The meeting link must start with https://');
     if (next.status === 'scheduled' && (!next.meetingAt || !next.duration)) fail('Pick a date, time and length for the call.');
@@ -528,6 +539,46 @@ var ACTIONS = {
     update(t, row);
     if (changed) log(ctx, next.status === 'requested' ? 'updated' : next.status, 'call', { id: row.id, title: row.topic, space: row.space });
     return callOut(row);
+  } },
+
+  // ---- calendar events and deadlines
+  'events.save': { write: true, fn: function (ctx, d) {
+    var t = table('Events');
+    var f = d.fields || {};
+    var row = d.id ? byId(t, d.id) : null;
+    if (row) require_(isAdmin(ctx) || row.createdBy === ctx.email, 'Only the person who added it, or an admin, can change this.');
+    var next = Object.assign({}, row || { id: newId(), kind: 'event', notes: '', client: '', attendees: '', space: MAIN_SPACE, createdBy: ctx.email, createdAt: ctx.now });
+    if (f.title !== undefined) next.title = String(f.title || '').trim().slice(0, 200);
+    if (f.kind !== undefined) next.kind = f.kind === 'deadline' ? 'deadline' : 'event';
+    if (f.date !== undefined) next.date = String(f.date || '');
+    if (f.time !== undefined) next.time = String(f.time || '');
+    if (f.duration !== undefined) next.duration = Number(f.duration) || '';
+    if (f.notes !== undefined) next.notes = str(f.notes, 2000);
+    if (f.space !== undefined) next.space = f.space || MAIN_SPACE;
+    if (f.attendees !== undefined) next.attendees = checkAttendees(f.attendees);
+    if (f.client !== undefined) {
+      next.client = String(f.client || '').trim().toLowerCase();
+      if (next.client && !find(table('Team'), function (p) { return p.email === next.client && p.role === 'guest'; })) {
+        fail('Pick the client from the list (clients are guests on the team).');
+      }
+    }
+    if (!next.title) fail('Give it a name.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(next.date)) fail('Pick a date.');
+    if (!next.time) next.duration = '';
+    require_(canEdit(ctx, next.space), 'You cannot add events in that space.');
+    next.updatedAt = ctx.now;
+    if (row) { Object.assign(row, next); update(t, row); } else row = insert(t, next);
+    log(ctx, d.id ? 'updated' : 'added', 'event', { id: row.id, title: row.title, space: row.space }, row.date);
+    return eventOut(row);
+  } },
+
+  'events.delete': { write: true, fn: function (ctx, d) {
+    var t = table('Events');
+    var row = byId(t, d.id);
+    require_(isAdmin(ctx) || row.createdBy === ctx.email, 'Only the person who added it, or an admin, can delete this.');
+    remove(t, [row]);
+    log(ctx, 'deleted', 'event', { id: row.id, title: row.title, space: row.space }, row.date);
+    return { id: d.id };
   } },
 
   // ---- team, roles and spaces
@@ -607,7 +658,7 @@ var ACTIONS = {
       fail(stuck.map(function (p) { return p.name; }).join(', ') + ' only belong(s) to this space. Move them to another client space or remove them first.');
     }
     remove(t, [row]);
-    ['Tasks', 'Docs', 'SheetLinks', 'Routines', 'DriveFiles', 'CallRequests'].forEach(function (name) {
+    ['Tasks', 'Docs', 'SheetLinks', 'Routines', 'DriveFiles', 'CallRequests', 'Events'].forEach(function (name) {
       var tt = table(name);
       tt.rows.forEach(function (r) { if (r.space === row.id) { r.space = MAIN_SPACE; update(tt, r); } });
     });
@@ -686,7 +737,13 @@ function fileOut(f) {
 function callOut(c) {
   return { id: c.id, email: c.email, space: c.space || MAIN_SPACE, topic: c.topic, notes: c.notes, preferred: c.preferred,
     status: c.status, meetingAt: c.meetingAt || '', duration: Number(c.duration) || 0, link: c.link || '', reply: c.reply || '',
-    handledBy: c.handledBy || '', createdAt: c.createdAt, updatedAt: c.updatedAt };
+    handledBy: c.handledBy || '', attendees: listOf(c.attendees), createdAt: c.createdAt, updatedAt: c.updatedAt };
+}
+
+function eventOut(e) {
+  return { id: e.id, title: e.title, kind: e.kind || 'event', date: e.date, time: e.time || '', duration: Number(e.duration) || 0,
+    notes: e.notes || '', client: e.client || '', attendees: listOf(e.attendees), space: e.space || MAIN_SPACE,
+    createdBy: e.createdBy, createdAt: e.createdAt };
 }
 
 function getBody(row) {
@@ -739,7 +796,7 @@ function ss() {
 
 function ensureSchema(force) {
   var cache = CacheService.getScriptCache();
-  if (!force && cache.get('schema_v3')) return;   // bump when SCHEMA changes so headers get rewritten
+  if (!force && cache.get('schema_v4')) return;   // bump when SCHEMA changes so headers get rewritten
   Object.keys(SCHEMA).forEach(function (name) {
     var headers = SCHEMA[name];
     var sh = ss().getSheetByName(name);
@@ -749,7 +806,7 @@ function ensureSchema(force) {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sh.setFrozenRows(1);
   });
-  cache.put('schema_v3', '1', 21600);
+  cache.put('schema_v4', '1', 21600);
 }
 
 function table(name) {

@@ -87,7 +87,7 @@ function card(t) {
     <div class="meta">${prTag(t)}${due.text ? `<span class="due ${due.cls}">${esc(due.text)}</span>` : ''}
       ${cl.length ? `<span class="muted">☑ ${cl.filter((c) => c.done).length}/${cl.length}</span>` : ''}
       <span class="grow"></span>${who ? avatar(who, 22) : ''}</div>
-    <div class="small muted">${esc(spaceName(t.space))}${t.client ? ` · for ${esc(person(t.client)?.name || t.client)}` : ''}${t.comments?.length ? ` · ${t.comments.length} comment${t.comments.length > 1 ? 's' : ''}` : ''}</div>
+    <div class="small muted">${esc(spaceName(t.space))}${t.comments?.length ? ` · ${t.comments.length} comment${t.comments.length > 1 ? 's' : ''}` : ''}</div>
   </article>`;
 }
 
@@ -244,7 +244,7 @@ export function openTask(id, onClose) {
   const editable = isNew ? can.work() : can.edit(task.space);
   const draft = structuredClone(task || {
     title: '', description: '', status: CONFIG.statuses[0].id, assignee: prefs.who === 'me' || !can.admin() ? S.me.email : '',
-    due: '', priority: '', space: defaultSpace(), client: '', checklist: [], comments: [],
+    due: '', priority: '', space: defaultSpace(), checklist: [], comments: [],
   });
   const dis = editable ? '' : 'disabled';
   // Members only see tasks given to them or made by them, so a task someone else gave you stays yours.
@@ -262,8 +262,6 @@ export function openTask(id, onClose) {
   const assigneeHtml = (space, current) => opt('', 'Unassigned', current) + assigneeOpts(space, current).map(([v, l]) => opt(v, l, current)).join('');
   // Spaces: the main one first, then the client spaces you can work in. No "no space".
   const spaceOpts = keep(S.spaces.filter((s) => can.edit(s.id)).map((s) => [s.id, s.name]), draft.space, spaceName(draft.space));
-  // Client: a guest this deadline is for. They see its title and due date on their calendar.
-  const clientOpts = keep(S.team.filter((p) => p.role === 'guest').map((p) => [p.email, p.name]), draft.client, `${person(draft.client)?.name || draft.client} (not a client now)`);
 
   const panel = openModal(`
     <form class="task-form">
@@ -281,7 +279,6 @@ export function openTask(id, onClose) {
           <label>Due<input class="input" type="date" name="due" value="${esc(draft.due)}" ${dis}></label>
           <label>Priority<select class="input" name="priority" ${dis}>${opt('', 'None', draft.priority)}${priorityOpts.map(([v, l]) => opt(v, l, draft.priority)).join('')}</select></label>
           <label>Space<select class="input" name="space" ${dis}>${spaceOpts.map(([v, l]) => opt(v, l, draft.space)).join('')}</select></label>
-          ${clientOpts.length || draft.client ? `<label>Client <span class="muted small">(sees title and due date)</span><select class="input" name="client" ${dis}>${opt('', 'None', draft.client)}${clientOpts.map(([v, l]) => opt(v, l, draft.client)).join('')}</select></label>` : ''}
         </div>
         <div class="md-field">
           <div class="md-tabs"><b>Description</b>${editable ? '<button type="button" data-tab="write">Write</button><button type="button" class="on" data-tab="preview">Preview</button>' : ''}</div>
@@ -314,7 +311,6 @@ export function openTask(id, onClose) {
   const formFields = () => ({
     title: f.title.value.trim(), status: f.status.value, assignee: f.assignee.value,
     due: f.due.value, priority: f.priority.value, space: f.space.value, description: f.description.value,
-    ...(f.client ? { client: f.client.value } : {}),
   });
 
   $$('[data-tab]', panel).forEach((b) => b.onclick = () => {

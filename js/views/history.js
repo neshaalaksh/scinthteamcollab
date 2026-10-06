@@ -21,6 +21,7 @@ const ICON = {
 
 function describe(a) {
   const what = { task: 'task', doc: 'doc', routine: 'routine', sheet: 'sheet', person: 'person', space: 'space', file: 'file', call: 'call', daily: '' }[a.type] ?? a.type;
+  if (a.type === 'event') return `${esc(a.action[0].toUpperCase() + a.action.slice(1))} calendar event <b>${esc(a.title)}</b>`;
   if (a.type === 'call') {
     const verb = { requested: 'Requested a call', scheduled: 'Scheduled the call', declined: 'Declined the call', cancelled: 'Cancelled the call' }[a.action] || 'Updated the call';
     return `${verb} <b>${esc(a.title)}</b>`;

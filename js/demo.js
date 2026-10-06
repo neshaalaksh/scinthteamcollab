@@ -5,9 +5,9 @@
 import { isoDate, addDays } from './util.js';
 import { CONFIG } from './config.js';
 
-// v2: Scinth + client spaces, Drive and calls. Older demo data (with "General") starts fresh.
-const DB_KEY = 'teamspace.demo.db.v2';
-const PROPS_KEY = 'teamspace.demo.props.v2';
+// v3: Scinth + client spaces, Drive, calls and calendar events. Older demo data starts fresh.
+const DB_KEY = 'teamspace.demo.db.v3';
+const PROPS_KEY = 'teamspace.demo.props.v3';
 
 export const DEMO_PEOPLE = [
   { email: 'you@demo.team', name: 'You', role: 'owner', spaces: '*' },
@@ -229,7 +229,6 @@ function seed({ mod, db }) {
   });
   put('Tasks', [
     task('t1', 'Send Acme invoice', 'doing', you, -2, 'urgent', 'acme', you, {
-      client: maya,
       description: 'Invoice for last month. Hours are in the billing sheet.\n\nhttps://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit#gid=0',
       checklist: [{ id: 'c1', text: 'Confirm hours with Sam', done: true }, { id: 'c2', text: 'Fill invoice template', done: false }, { id: 'c3', text: 'Email to client', done: false }],
       comments: [{ id: 'm1', by: sam, text: 'Hours confirmed: 42.', at: at(0, 8, 40) }],
@@ -238,12 +237,12 @@ function seed({ mod, db }) {
     task('t3', 'Plan Q4 budget', 'todo', you, 4, 'high', 'scinth', you),
     task('t4', 'Hire designer: shortlist', 'todo', priya, 7, 'normal', 'scinth', you),
     task('t5', 'Order packaging', 'todo', priya, 10, 'low', 'scinth', priya),
-    task('t6', 'Acme proposal v2', 'review', sam, 6, 'normal', 'acme', alex, { client: maya }),
+    task('t6', 'Acme proposal v2', 'review', sam, 6, 'normal', 'acme', alex),
     task('t7', 'Update pricing sheet', 'done', sam, -1, 'normal', 'scinth', sam, { completedAt: at(-1, 18, 40), completedBy: sam }),
     task('t8', 'Book venue', 'done', alex, -2, 'high', 'scinth', alex, { completedAt: at(-2, 14, 15), completedBy: alex }),
-    task('t9', 'Northwind onboarding pack', 'todo', sam, 3, 'high', 'northwind', alex, { client: leo }),
+    task('t9', 'Northwind onboarding pack', 'todo', sam, 3, 'high', 'northwind', alex),
     task('t10', "Review Priya's supplier research", 'todo', alex, 2, 'normal', 'scinth', priya),
-    task('t11', 'Northwind kickoff deck', 'done', sam, -3, 'normal', 'northwind', sam, { client: leo, completedAt: at(-3, 16, 5), completedBy: sam }),
+    task('t11', 'Northwind kickoff deck', 'done', sam, -3, 'normal', 'northwind', sam, { completedAt: at(-3, 16, 5), completedBy: sam }),
   ]);
 
   // r3 used to be only yours: Priya joined it 3 days ago (past days still count it as yours only).
@@ -304,8 +303,20 @@ function seed({ mod, db }) {
 
   put('CallRequests', [
     { id: 'c1', email: maya, space: 'acme', topic: 'Walk through the proposal', notes: 'Our finance lead will join.', preferred: 'Thu or Fri afternoon, London time', status: 'requested', createdAt: at(-1, 15, 0), updatedAt: at(-1, 15, 0) },
-    { id: 'c2', email: leo, space: 'northwind', topic: 'Kickoff call', notes: '', preferred: 'Any morning next week', status: 'scheduled', meetingAt: at(2, 10, 0), duration: 30, link: 'https://meet.google.com/abc-defg-hij', reply: 'See you then!', handledBy: alex, createdAt: at(-4, 9, 0), updatedAt: at(-3, 10, 0) },
-    { id: 'c3', email: maya, space: 'acme', topic: 'Intro call', notes: '', preferred: '', status: 'scheduled', meetingAt: at(-9, 14, 0), duration: 45, link: 'https://meet.google.com/xyz-abcd-efg', reply: '', handledBy: you, createdAt: at(-14, 9, 0), updatedAt: at(-12, 10, 0) },
+    { id: 'c2', email: leo, space: 'northwind', topic: 'Kickoff call', notes: '', preferred: 'Any morning next week', status: 'scheduled', meetingAt: at(2, 10, 0), duration: 30, link: 'https://meet.google.com/abc-defg-hij', reply: 'See you then!', handledBy: alex, attendees: [alex, sam].join(','), createdAt: at(-4, 9, 0), updatedAt: at(-3, 10, 0) },
+    { id: 'c3', email: maya, space: 'acme', topic: 'Intro call', notes: '', preferred: '', status: 'scheduled', meetingAt: at(-9, 14, 0), duration: 45, link: 'https://meet.google.com/xyz-abcd-efg', reply: '', handledBy: you, attendees: you, createdAt: at(-14, 9, 0), updatedAt: at(-12, 10, 0) },
+  ]);
+
+  // Calendar events and deadlines. Clients see the ones made for them; members the ones they made or are invited to.
+  const ev = (id, title, kind, day, time, duration, client, attendees, space, createdBy, notes = '') => ({
+    id, title, kind, date: addDays(today, day), time, duration, notes, client, attendees: attendees.join(','), space, createdBy, createdAt: at(-5, 9, 0), updatedAt: at(-5, 9, 0),
+  });
+  put('Events', [
+    ev('e1', 'Proposal sign-off', 'deadline', 4, '', '', maya, [sam], 'acme', alex, 'Signed proposal back to us by end of day.'),
+    ev('e2', 'Brand assets due', 'deadline', -1, '', '', maya, [], 'acme', sam),
+    ev('e3', 'Northwind requirements workshop', 'event', 8, '14:00', 120, leo, [sam, alex], 'northwind', alex, 'At the Northwind office.'),
+    ev('e4', 'Team lunch', 'event', 1, '12:30', 60, '', [priya, sam], 'scinth', you),
+    ev('e5', 'Quarterly planning', 'event', 9, '', '', '', [alex], 'scinth', you),
   ]);
 
   const act = (day, hh, mm, email, action, type, itemId, title, space, detail = '') => ({ at: at(day, hh, mm), email, action, type, itemId, title, space, detail });
