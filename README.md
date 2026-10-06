@@ -1,6 +1,6 @@
 # Teamspace
 
-Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, calendar and history in one place.
+Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, a shared Drive, client calls, calendar and history in one place.
 
 - **Free:** the website runs on GitHub Pages and the data lives in Supabase (free plan).
 - **Sign-in:** with Google, using roles: Owner, Admin, Member, Guest.
@@ -13,14 +13,18 @@ Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, cal
 
 | Screen | What it does |
 |---|---|
-| Home | Your routines today, your tasks, the team's progress, what's due this week, and pinned docs and sheets |
-| Tasks | Board (drag cards) or list. Assignee, due date, priority, space, checklist, comments. Saves who completed it and when. |
-| Calendar | Month or week view of tasks due and done, plus routine ticks per day |
-| Daily | Repeating routines with a tick per person (time saved), and everyone's daily update |
-| History | Everything done, grouped by day, with charts. Members see their own; Owner and Admins see everyone. |
+| Home | Your routines today, your tasks, what's due this week, pinned docs and sheets, and (owner and admins) the team's progress |
+| Tasks | Board (drag cards between and within columns) or list. Assignee, due date, priority, space, client, checklist, comments. Saves who completed it and when. Owner and admins see every task; members see theirs and the ones they gave out. |
+| Calendar | Month or week view of tasks due and done, routine ticks per day, and scheduled client calls. Clients see only their own calls and deadlines. |
+| Daily | Repeating routines with a tick per person (time saved). Members see their own; owner and admins everyone's. |
+| History | Everything done, grouped by day, with charts. Owner and admins only. |
 | Docs | A Google Docs style editor: several people type in the same doc at once and see each other's cursors. Fonts, sizes, colours, alignment, lists, checklists, tables, images, find & replace, print/PDF. Type `/` for blocks and to embed a Google Sheet, Google Doc, task, Slides, YouTube and more. Keeps old versions. |
 | Sheets | Your team's key Google Sheets in tabs, each editable or read-only |
+| Drive | Files for the team and clients, stored in Google Drive. Clients upload too, and delete only their own. |
+| Calls | Clients ask for a call; the owner and admins schedule it (it lands on both calendars) or decline it |
 | Team & roles | The Owner and Admins add people and set roles and spaces |
+
+**Spaces:** **Scinth** is the team's own space; every other space is for one client. Clients are **guests**: they see only Drive, Calendar and "Request a call" for their space.
 
 ## How it fits together
 
@@ -42,13 +46,15 @@ js/app.js           sign-in, menu, page switching, syncing with teammates
 js/api.js           sign-in, and sends each action to Supabase or the demo
 js/supabase.js      every action (save task, tick routine…) done with Supabase
 js/state.js         loaded data and permission checks for showing buttons
-js/demo.js          demo mode: runs backend/Code.gs in the browser
+js/demo.js          demo mode: runs backend/Code.gs in the browser (uploads stay in the browser)
 js/views/*.js       one file per screen
 js/collab.js        live co-editing: shares each doc's changes and cursors with everyone who has it open
 js/doc-tools.js     the doc editor's toolbar, "/" menu, find & replace and dialogs
 tools/editor        source for vendor/editor.bundle.js (only needed to change the editor: `npm install && npm run build`)
 supabase/migrations the database: tables, security rules, History log
-backend/Code.gs     the old Google Sheets backend, now only used by demo mode
+supabase/functions  the "drive" server function: puts uploaded files in Google Drive (SETUP.md, Step 7)
+backend/Code.gs     the old Google Sheets backend, now only used by demo mode (same rules as the database)
+tools/demo-site.sh  builds the hosted demo website (demo mode, embeds as links) into ./demo-site
 vendor/             marked, DOMPurify, the doc editor (Tiptap + Yjs, built from tools/editor), Supabase (stored here so nothing loads from other sites)
 ```
 

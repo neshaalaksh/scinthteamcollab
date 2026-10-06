@@ -2,6 +2,7 @@
 // toolbar, the "/" menu, find & replace, and the link / image / embed dialogs.
 
 import { S, inSpace } from './state.js';
+import { CONFIG } from './config.js';
 import { $, $$, esc, openModal, toast } from './util.js';
 import { toEmbed } from './embed.js';
 
@@ -104,7 +105,7 @@ export function mountToolbar(host, editor, { onFind, onComment } = {}) {
     [
       btn('undo', ICON.undo, 'Undo (Ctrl+Z)', () => run(editor).undo().run()),
       btn('redo', ICON.redo, 'Redo (Ctrl+Y)', () => run(editor).redo().run()),
-      btn('print', ICON.print, 'Print or save as PDF (Ctrl+P)', () => window.print()),
+      ...(CONFIG.demoSite ? [] : [btn('print', ICON.print, 'Print or save as PDF (Ctrl+P)', () => window.print())]),
     ],
     ['style', 'font', 'size'],
     [

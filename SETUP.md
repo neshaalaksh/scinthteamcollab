@@ -12,7 +12,7 @@ Until you finish, the site runs in **demo mode**: fake data that stays in your o
 ## Step 1: Make the database (5 min)
 
 - [ ] At [supabase.com/dashboard](https://supabase.com/dashboard), click **New project**. Pick the region closest to your team.
-- [ ] Open **SQL Editor**. Paste and run each file in [`supabase/migrations`](supabase/migrations), in order (`…01_tables`, `…02_security`, `…03_triggers`, `…04_rpc`, `…05_live_docs`, `…05_sheet_pinned`, `…06_search_and_ticks`). `…05_live_docs` turns on live co-editing in Docs. Already set up? Just run the ones you haven't run yet.
+- [ ] Open **SQL Editor**. Paste and run each file in [`supabase/migrations`](supabase/migrations), in order (`…01_tables`, `…02_security`, `…03_triggers`, `…04_rpc`, `…05_live_docs`, `…05_sheet_pinned`, `…06_search_and_ticks`, `…01_roles_spaces_drive_calls`). `…05_live_docs` turns on live co-editing in Docs; `…01_roles_spaces_drive_calls` sets up the roles, the Scinth space, Drive and calls. Already set up? Just run the ones you haven't run yet, in order.
 - [ ] Still in the SQL Editor, make yourself the Owner:
 
   ```sql
@@ -65,12 +65,59 @@ Until you finish, the site runs in **demo mode**: fake data that stays in your o
 > GitHub Pages is free for **public** repos. A private repo needs a paid GitHub plan.
 > Your data is safe either way: it lives in Supabase, not in the repo.
 
-## Step 6: Add your team
+## Step 6: Add your team and clients
 
 - [ ] Open the site and sign in with Google. You're the Owner.
-- [ ] Go to **Team & roles → Manage spaces** and create your spaces (e.g. Ops, Marketing, Client A).
-- [ ] Go to **Team & roles → + Add person** for each teammate: their Google email, role, and spaces.
+- [ ] **Scinth** is the team's own space and is already there. Go to **Team & roles → Manage spaces** and add a space for each client (e.g. Acme Ltd).
+- [ ] Go to **Team & roles → + Add person** for each teammate: their Google email and role. Members always see Scinth; tick any client spaces they also work in.
+- [ ] Add each client contact as a **Guest** and pick their client space. Guests see only Drive, Calendar and "Request a call" for their space.
 - [ ] Send them the link. They sign in with Google, and that's it.
+
+What each role sees:
+
+| | Owner / Admin | Member | Guest (client) |
+|---|---|---|---|
+| Pages | All, including History, Calls and Team | Home, Tasks, Calendar, Daily, Docs, Sheets, Drive | Drive, Calendar, Request a call |
+| Tasks | Everyone's | Assigned to them, or made by them | None; only their deadlines on the Calendar |
+| Routines | Everyone's | Their own | None |
+
+## Step 7: Turn on Drive uploads (15 min)
+
+Files uploaded in the **Drive** tab go to a Google Drive folder; the site keeps the list. Until this step is done, uploading says "Drive is not set up yet" (everything else works).
+
+**1. Let the server function into Google Drive.** Pick one:
+
+- **Google Workspace (recommended): a service account and a Shared drive.**
+  - [ ] In the Google Cloud project from Step 2: **APIs & Services → Library → Google Drive API → Enable**.
+  - [ ] **IAM & Admin → Service accounts → Create service account** (no roles needed). Open it, then **Keys → Add key → JSON**. Keep the downloaded file safe; it is a password.
+  - [ ] In Google Drive, make a **Shared drive** (e.g. "Teamspace files"), **Manage members**, and add the service account's email as **Content manager**. (A service account has no storage of its own, so it must be a Shared drive, not "My Drive".)
+- **A normal Gmail account: upload as that account.**
+  - [ ] Enable the **Google Drive API** as above.
+  - [ ] **Credentials → Create credentials → OAuth client ID → Web application**, with authorized redirect URI `https://developers.google.com/oauthplayground`. Copy its client ID and secret.
+  - [ ] Open [OAuth Playground](https://developers.google.com/oauthplayground), click the gear, tick **Use your own OAuth credentials**, paste them. Authorize the scope `https://www.googleapis.com/auth/drive` with the Google account that should own the files, then **Exchange authorization code for tokens** and copy the **Refresh token**.
+  - [ ] The OAuth consent screen must be **In production** (Step 2's **Publish app**); in "Testing" the token stops working after 7 days.
+
+**2. Pick the folder.** Open the folder (or Shared drive) in Google Drive and copy the ID from the address: `drive.google.com/drive/folders/`**`THIS-PART`**.
+
+**3. Deploy the function and give it the secrets.** On your computer, in this repo:
+
+```sh
+npx supabase login
+npx supabase link --project-ref <your project ref>      # Project Settings → General
+npx supabase functions deploy drive
+```
+
+Then in Supabase: **Edge Functions → Secrets** (or `npx supabase secrets set NAME=value`), add:
+
+| Secret | Value |
+|---|---|
+| `DRIVE_FOLDER_ID` | the folder ID from part 2 |
+| `GOOGLE_SERVICE_ACCOUNT` | the whole JSON key file (Workspace option) |
+| `GOOGLE_REFRESH_TOKEN`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | from part 1 (Gmail option, instead of the one above) |
+| `DRIVE_LINK_SHARING` | optional. `anyone` (default): each file can be opened by anyone with its link, so clients can open it without a Google invite. `folder`: files only open for people the folder is shared with. |
+| `DRIVE_MAX_MB` | optional, largest upload in MB (default 20) |
+
+Who can see a file **in the site** is still decided by the database (a client only ever sees their own space's files). `DRIVE_LINK_SHARING` only decides who can open a file's Google Drive link.
 
 ---
 
@@ -107,3 +154,6 @@ All in [`js/config.js`](js/config.js):
 | "Sign-in didn't work: … audience …" or "… provider is not enabled" | The Client ID in Supabase (Step 3) must match `googleClientId` in `config.js`, and Google must be enabled. |
 | Google button doesn't show | Add your site's address to **Authorized JavaScript origins** (Step 2). |
 | "Couldn't reach the server" | Check `supabaseUrl` in `config.js`, and that the project isn't paused in Supabase. |
+| "Drive is not set up yet" | Do Step 7: deploy the `drive` function and add its secrets. |
+| "Google Drive upload failed (403): Service Accounts do not have storage quota" | The folder must be in a **Shared drive** with the service account as a member, or use the Gmail option. |
+| "Google Drive sign-in failed" | Check the secrets: the full JSON key, or the refresh token, client ID and secret. |

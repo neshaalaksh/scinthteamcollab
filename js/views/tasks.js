@@ -1,5 +1,5 @@
 import { CONFIG, DONE } from '../config.js';
-import { S, act, can, inSpace, person, spaceName, statusById, priorityById, isDone, personCanSee } from '../state.js';
+import { S, act, can, inSpace, person, spaceName, statusById, priorityById, isDone, personCanSee, defaultSpace } from '../state.js';
 import { $, $$, esc, avatar, dueLabel, fmtStamp, timeAgo, openModal, confirmBox, toast, lsGet, lsSet, uid } from '../util.js';
 import { renderMarkdown } from '../markdown.js';
 
@@ -18,13 +18,9 @@ export default {
       </div>
       <span class="grow"></span>
       <input type="search" class="input" id="task-search" placeholder="Search tasks…" aria-label="Search tasks" value="${esc(prefs.q)}">
-      <select class="input" id="task-who" aria-label="Whose tasks">
-        <option value="all">Everyone</option>
-        <option value="me">My tasks</option>
-        <option value="none">Unassigned</option>
-        ${S.team.filter((p) => p.role !== 'guest').map((p) => `<option value="${esc(p.email)}">${esc(p.name)}</option>`).join('')}
-      </select>
+      <select class="input" id="task-who" aria-label="Whose tasks">${whoOptions()}</select>
       ${can.work() ? '<button class="btn primary" id="new-task">+ New task</button>' : ''}`;
+    if (![...$('#task-who').options].some((o) => o.value === prefs.who)) prefs.who = 'all';
     $('#task-who').value = prefs.who;
     $('#task-search').oninput = (e) => { prefs.q = e.target.value; savePrefs(); renderBody(); };
     $('#task-who').onchange = (e) => { prefs.who = e.target.value; savePrefs(); renderBody(); };
@@ -45,13 +41,24 @@ export default {
   },
 };
 
+// Owner and admins see every task, so they filter by person. Members only have their own
+// tasks and the ones they gave to someone else, so they filter between those two.
+function whoOptions() {
+  if (!can.admin()) {
+    return '<option value="all">All my tasks</option><option value="me">Assigned to me</option><option value="byme">Assigned by me</option>';
+  }
+  return `<option value="all">Everyone</option><option value="me">My tasks</option><option value="none">Unassigned</option>
+    ${S.team.filter((p) => p.role !== 'guest').map((p) => `<option value="${esc(p.email)}">${esc(p.name)}</option>`).join('')}`;
+}
+
 function visible() {
   const q = prefs.q.toLowerCase();
   return S.tasks.filter((t) => {
     if (!inSpace(t)) return false;
     if (prefs.who === 'me' && t.assignee !== S.me.email) return false;
     if (prefs.who === 'none' && t.assignee) return false;
-    if (!['all', 'me', 'none'].includes(prefs.who) && t.assignee !== prefs.who) return false;
+    if (prefs.who === 'byme' && !(t.createdBy === S.me.email && t.assignee !== S.me.email)) return false;
+    if (!['all', 'me', 'none', 'byme'].includes(prefs.who) && t.assignee !== prefs.who) return false;
     if (q && !`${t.title} ${t.description}`.toLowerCase().includes(q)) return false;
     return true;
   });
@@ -80,7 +87,7 @@ function card(t) {
     <div class="meta">${prTag(t)}${due.text ? `<span class="due ${due.cls}">${esc(due.text)}</span>` : ''}
       ${cl.length ? `<span class="muted">☑ ${cl.filter((c) => c.done).length}/${cl.length}</span>` : ''}
       <span class="grow"></span>${who ? avatar(who, 22) : ''}</div>
-    <div class="small muted">${esc(spaceName(t.space))}${t.comments?.length ? ` · ${t.comments.length} comment${t.comments.length > 1 ? 's' : ''}` : ''}</div>
+    <div class="small muted">${esc(spaceName(t.space))}${t.client ? ` · for ${esc(person(t.client)?.name || t.client)}` : ''}${t.comments?.length ? ` · ${t.comments.length} comment${t.comments.length > 1 ? 's' : ''}` : ''}</div>
   </article>`;
 }
 
@@ -97,7 +104,7 @@ function renderBody() {
     return `<section class="column" data-status="${s.id}" aria-label="${esc(s.label)}">
       <header><span class="dot" style="--c:${s.color}"></span>${esc(s.label)}<span class="count">${total}</span></header>
       <div class="cards">${col.map(card).join('')}</div>
-      ${s.id === DONE && total > col.length ? '<a class="small" href="#/history">See all in History →</a>' : ''}
+      ${s.id === DONE && total > col.length ? (can.admin() ? '<a class="small" href="#/history">See all in History →</a>' : `<span class="small muted">Showing the latest ${col.length}. All of them are in List view.</span>`) : ''}
       ${can.work() && s.id !== DONE ? `<form class="quick-add"><input class="input" name="title" placeholder="+ Add task" aria-label="Add task to ${esc(s.label)}"></form>` : ''}
     </section>`;
   }).join('')}</div>`;
@@ -109,20 +116,23 @@ function renderBody() {
     c.ondragend = () => c.classList.remove('dragging');
   });
   $$('.column', body).forEach((col) => {
-    col.ondragover = (e) => { e.preventDefault(); col.classList.add('drop'); };
-    col.ondragleave = () => col.classList.remove('drop');
+    const clearMarks = () => $$('.drop-before, .drop-end', col).forEach((x) => x.classList.remove('drop-before', 'drop-end'));
+    col.ondragover = (e) => {
+      e.preventDefault();
+      col.classList.add('drop');
+      clearMarks();
+      if (col.dataset.status === DONE) return;   // Done is ordered by when things were finished
+      const { cards, index } = dropSpot(col, e.clientY);
+      if (cards[index]) cards[index].classList.add('drop-before'); else $('.cards', col).classList.add('drop-end');
+    };
+    col.ondragleave = (e) => { if (!col.contains(e.relatedTarget)) { col.classList.remove('drop'); clearMarks(); } };
     col.ondrop = async (e) => {
       e.preventDefault();
       col.classList.remove('drop');
+      clearMarks();
       const t = S.tasks.find((x) => x.id === e.dataTransfer.getData('text/plain'));
-      if (!t || t.status === col.dataset.status) return;
-      const before = { ...t };
-      t.status = col.dataset.status; // show it moved right away
-      if (isDone(t)) { t.completedAt = new Date().toISOString(); t.completedBy = S.me.email; }
-      renderBody();
-      const saved = await act('tasks.save', { id: t.id, fields: { status: t.status } });
-      Object.assign(t, saved || before);
-      renderBody();
+      if (!t) return;
+      await moveTask(t, col, e.clientY);
     };
     const form = $('.quick-add', col);
     if (form) form.onsubmit = async (e) => {
@@ -130,10 +140,56 @@ function renderBody() {
       const title = form.elements.title.value.trim();
       if (!title) return;
       form.reset();
-      await createTask({ title, status: col.dataset.status, space: S.space === 'all' ? '' : S.space, assignee: prefs.who === 'me' ? S.me.email : '' });
+      await createTask({ title, status: col.dataset.status, space: defaultSpace(), assignee: prefs.who === 'me' || !can.admin() ? S.me.email : '' });
       $(`.column[data-status="${col.dataset.status}"] .quick-add input`, rootEl)?.focus();
     };
   });
+}
+
+// Where in a column the pointer is: before cards[index], or at the end when index === cards.length.
+function dropSpot(col, y) {
+  const cards = $$('.card-task:not(.dragging)', col);
+  const i = cards.findIndex((c) => { const r = c.getBoundingClientRect(); return y < r.top + r.height / 2; });
+  return { cards, index: i < 0 ? cards.length : i };
+}
+
+// Moves a task to another column and/or to a spot between two cards, and saves it.
+async function moveTask(t, col, y) {
+  const status = col.dataset.status;
+  const changes = new Map();   // task id -> fields to save
+  if (status !== DONE) {
+    const { cards, index } = dropSpot(col, y);
+    const seq = cards.map((c) => c.dataset.id).filter((id) => id !== t.id);
+    const at = Math.min(index, seq.length);   // the dragged card isn't in `cards` (it has .dragging)
+    seq.splice(at, 0, t.id);
+    const byId = (id) => S.tasks.find((x) => x.id === id);
+    const prev = byId(seq[at - 1]);
+    const next = byId(seq[at + 1]);
+    let order = t.order;
+    if (prev && next) order = prev.order < next.order ? (prev.order + next.order) / 2 : null;
+    else if (prev) order = prev.order + 1;
+    else if (next) order = next.order - 1;
+    if (order === null) {
+      // Neighbours share a position (e.g. never ordered): number the whole column in its new order.
+      seq.forEach((id, i) => { const x = byId(id); if (x && x.order !== (i + 1) * 10) changes.set(id, { order: (i + 1) * 10 }); });
+    } else if (order !== t.order) changes.set(t.id, { order });
+  }
+  if (t.status !== status) changes.set(t.id, { ...(changes.get(t.id) || {}), status });
+  if (!changes.size) return;
+
+  const before = new Map([...changes.keys()].map((id) => [id, { ...S.tasks.find((x) => x.id === id) }]));
+  for (const [id, f] of changes) {   // show it right away
+    const x = S.tasks.find((y2) => y2.id === id);
+    Object.assign(x, f);
+    if (f.status && isDone(x)) { x.completedAt = new Date().toISOString(); x.completedBy = S.me.email; }
+  }
+  renderBody();
+  for (const [id, f] of changes) {
+    const saved = await act('tasks.save', { id, fields: f });
+    const x = S.tasks.find((y2) => y2.id === id);
+    if (x) Object.assign(x, saved || before.get(id));
+  }
+  renderBody();
 }
 
 function renderList(body, list) {
@@ -187,10 +243,12 @@ export function openTask(id, onClose) {
   const isNew = !task;
   const editable = isNew ? can.work() : can.edit(task.space);
   const draft = structuredClone(task || {
-    title: '', description: '', status: CONFIG.statuses[0].id, assignee: prefs.who === 'me' ? S.me.email : '',
-    due: '', priority: '', space: S.space === 'all' ? '' : S.space, checklist: [], comments: [],
+    title: '', description: '', status: CONFIG.statuses[0].id, assignee: prefs.who === 'me' || !can.admin() ? S.me.email : '',
+    due: '', priority: '', space: defaultSpace(), client: '', checklist: [], comments: [],
   });
   const dis = editable ? '' : 'disabled';
+  // Members only see tasks given to them or made by them, so a task someone else gave you stays yours.
+  const assigneeLocked = !isNew && !can.admin() && task.createdBy !== S.me.email;
   const opt = (value, label, current) => `<option value="${esc(value)}" ${value === current ? 'selected' : ''}>${esc(label)}</option>`;
   // Lists for the dropdowns. A value that's no longer in a list (someone removed from the team, a status or
   // priority taken out of config.js) stays as an option, so saving never changes it behind your back.
@@ -202,6 +260,10 @@ export function openTask(id, onClose) {
     S.team.filter((p) => p.role !== 'guest' && personCanSee(p, space)).map((p) => [p.email, p.name]),
     current, `${person(current)?.name || current} (${S.team.some((p) => p.email === current) ? "can't see this space" : 'not on the team'})`);
   const assigneeHtml = (space, current) => opt('', 'Unassigned', current) + assigneeOpts(space, current).map(([v, l]) => opt(v, l, current)).join('');
+  // Spaces: the main one first, then the client spaces you can work in. No "no space".
+  const spaceOpts = keep(S.spaces.filter((s) => can.edit(s.id)).map((s) => [s.id, s.name]), draft.space, spaceName(draft.space));
+  // Client: a guest this deadline is for. They see its title and due date on their calendar.
+  const clientOpts = keep(S.team.filter((p) => p.role === 'guest').map((p) => [p.email, p.name]), draft.client, `${person(draft.client)?.name || draft.client} (not a client now)`);
 
   const panel = openModal(`
     <form class="task-form">
@@ -215,10 +277,11 @@ export function openTask(id, onClose) {
         <input class="title-input" name="title" placeholder="Task name" value="${esc(draft.title)}" aria-label="Task name" required ${dis}>
         <div class="field-grid">
           <label>Status<select class="input" name="status" ${dis}>${statusOpts.map(([v, l]) => opt(v, l, draft.status)).join('')}</select></label>
-          <label>Assignee<select class="input" name="assignee" ${dis}>${assigneeHtml(draft.space, draft.assignee)}</select></label>
+          <label>Assignee<select class="input" name="assignee" ${dis} ${assigneeLocked ? `disabled title="${esc(person(task.createdBy)?.name || 'Someone')} gave you this task, so only they or an admin can reassign it."` : ''}>${assigneeHtml(draft.space, draft.assignee)}</select></label>
           <label>Due<input class="input" type="date" name="due" value="${esc(draft.due)}" ${dis}></label>
           <label>Priority<select class="input" name="priority" ${dis}>${opt('', 'None', draft.priority)}${priorityOpts.map(([v, l]) => opt(v, l, draft.priority)).join('')}</select></label>
-          <label>Space<select class="input" name="space" ${dis}>${can.admin() || S.me.spaces === '*' || (!isNew && !draft.space) ? opt('', 'General', draft.space) : ''}${S.spaces.map((s) => opt(s.id, s.name, draft.space)).join('')}</select></label>
+          <label>Space<select class="input" name="space" ${dis}>${spaceOpts.map(([v, l]) => opt(v, l, draft.space)).join('')}</select></label>
+          ${clientOpts.length || draft.client ? `<label>Client <span class="muted small">(sees title and due date)</span><select class="input" name="client" ${dis}>${opt('', 'None', draft.client)}${clientOpts.map(([v, l]) => opt(v, l, draft.client)).join('')}</select></label>` : ''}
         </div>
         <div class="md-field">
           <div class="md-tabs"><b>Description</b>${editable ? '<button type="button" data-tab="write">Write</button><button type="button" class="on" data-tab="preview">Preview</button>' : ''}</div>
@@ -251,6 +314,7 @@ export function openTask(id, onClose) {
   const formFields = () => ({
     title: f.title.value.trim(), status: f.status.value, assignee: f.assignee.value,
     due: f.due.value, priority: f.priority.value, space: f.space.value, description: f.description.value,
+    ...(f.client ? { client: f.client.value } : {}),
   });
 
   $$('[data-tab]', panel).forEach((b) => b.onclick = () => {

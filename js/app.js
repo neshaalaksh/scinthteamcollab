@@ -1,6 +1,6 @@
 import { CONFIG, isDemo } from './config.js';
 import { call, initAuth, getSession, setSession, signOut, signInWithGoogle, setAuthLostHandler, setRole, watchChanges, lastRev } from './api.js';
-import { S, loadAll, setSpace, can } from './state.js';
+import { S, loadAll, setSpace, can, allowedViews } from './state.js';
 import { DEMO_PEOPLE, resetDemo } from './demo.js';
 import { $, $$, esc, avatar, isModalOpen, toast } from './util.js';
 import home from './views/home.js';
@@ -11,13 +11,21 @@ import history from './views/history.js';
 import docs from './views/docs.js';
 import sheets from './views/sheets.js';
 import team from './views/team.js';
+import drive from './views/drive.js';
+import calls from './views/calls.js';
 
-const views = { home, tasks, calendar, daily, history, docs, sheets, team };
+window.TEAMSPACE_LINK_EMBEDS = !!CONFIG.demoSite;   // read by embed.js (also inside the editor bundle)
+
+const views = { home, tasks, calendar, daily, history, docs, sheets, team, drive, calls };
 let current = null;
 
+// Only pages this person's role has; anything else goes to their first page.
 function parseHash() {
-  const [name = 'home', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
-  return { name: views[name] ? name : 'home', params: rest.map(decodeURIComponent) };
+  const allowed = allowedViews();
+  const [name = '', ...rest] = location.hash.replace(/^#\/?/, '').split('/');
+  if (views[name] && allowed.includes(name)) return { name, params: rest.map(decodeURIComponent) };
+  if (location.hash) window.history.replaceState(null, '', `#/${allowed[0]}`);   // (`history` here is the History page)
+  return { name: allowed[0], params: [] };
 }
 
 export async function render() {
@@ -32,7 +40,7 @@ export async function render() {
     a.setAttribute('aria-current', a.dataset.nav === name ? 'page' : 'false');
   });
   $('#sidebar').classList.remove('open');
-  $('#page-title').textContent = view.title;
+  $('#page-title').textContent = typeof view.title === 'function' ? view.title() : view.title;
   $('#topbar-slot').innerHTML = '';
   try {
     await view.render($('#view'), params);
@@ -48,7 +56,14 @@ function renderChrome() {
   const select = $('#space-select');
   select.innerHTML = `<option value="all">All spaces</option>${S.spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}`;
   select.value = S.space;
-  $$('[data-admin]').forEach((el) => { el.hidden = !can.admin(); });
+  // The menu shows only this role's pages, in its order.
+  const allowed = allowedViews();
+  const nav = $('#nav');
+  allowed.forEach((v) => { const a = $(`[data-nav="${v}"]`, nav); if (a) nav.append(a); });
+  $$('[data-nav]', nav).forEach((a) => { a.hidden = !allowed.includes(a.dataset.nav); });
+  $('[data-nav="calls"]', nav).textContent = can.guest() ? 'Request a call' : 'Calls';
+  // Guests only ever see their own client space(s), so the picker would add nothing.
+  $('.space-picker').hidden = can.guest() || S.spaces.length < 2;
   const roleLabel = { owner: 'Owner', admin: 'Admin', member: 'Member', guest: 'Guest' }[S.me.role];
   $('#me').innerHTML = `
     ${avatar(S.me, 32)}

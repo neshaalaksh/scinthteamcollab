@@ -2,7 +2,7 @@
 // Permissions are enforced by the database (supabase/migrations); this file
 // only turns rows into the shapes the screens expect, and back.
 
-import { CONFIG } from './config.js';
+import { CONFIG, MAIN_SPACE } from './config.js';
 
 let sb = null;
 
@@ -28,12 +28,13 @@ export async function connect() {
 const blank = (v) => (v === '' || v === undefined ? null : v);
 const str = (v) => v ?? '';
 
-const personOut = (p) => ({ email: p.email, name: p.name, role: p.role, spaces: p.spaces || '*', lastActive: str(p.last_active) });
+// spaces: the client spaces someone sees ('*' = all, '' = none: members still see the main space).
+const personOut = (p) => ({ email: p.email, name: p.name, role: p.role, spaces: p.spaces ?? '', lastActive: str(p.last_active) });
 const spaceOut = (s) => ({ id: s.id, name: s.name, color: s.color, createdAt: s.created_at });
 
 const taskOut = (t) => ({
   id: t.id, title: t.title, description: t.description, status: t.status,
-  assignee: str(t.assignee), due: str(t.due), priority: str(t.priority), space: str(t.space),
+  assignee: str(t.assignee), due: str(t.due), priority: str(t.priority), space: t.space || MAIN_SPACE, client: str(t.client),
   checklist: t.checklist || [], comments: t.comments || [], order: t.sort_order || 0,
   createdAt: t.created_at, createdBy: str(t.created_by), updatedAt: t.updated_at,
   completedAt: str(t.completed_at), completedBy: str(t.completed_by),
@@ -41,13 +42,14 @@ const taskOut = (t) => ({
 
 const routineOut = (r) => ({
   id: r.id, title: r.title, notes: r.notes, assignees: r.assignees ?? 'everyone', days: r.days || [],
-  space: str(r.space), active: r.active, createdAt: r.created_at, createdBy: str(r.created_by),
+  space: r.space || MAIN_SPACE, active: r.active, createdAt: r.created_at, createdBy: str(r.created_by),
+  removedAt: str(r.removed_at), history: r.history || [],
 });
 
 const DOC_META = 'id,title,space,folder,pinned,version,updated_at,updated_by,locked_by,locked_at,created_by';
 const docOut = (d) => {
   const o = {
-    id: d.id, title: d.title, space: str(d.space), folder: d.folder, pinned: d.pinned, version: d.version,
+    id: d.id, title: d.title, space: d.space || MAIN_SPACE, folder: d.folder, pinned: d.pinned, version: d.version,
     updatedAt: d.updated_at, updatedBy: str(d.updated_by), lockedBy: str(d.locked_by), lockedAt: str(d.locked_at),
     createdBy: str(d.created_by),
   };
@@ -57,25 +59,36 @@ const docOut = (d) => {
 };
 
 const sheetOut = (s) => ({
-  id: s.id, name: s.name, url: s.url, mode: s.mode, space: str(s.space), height: s.height || 0,
+  id: s.id, name: s.name, url: s.url, mode: s.mode, space: s.space || MAIN_SPACE, height: s.height || 0,
   pinned: !!s.pinned, order: s.sort_order || 0, addedBy: str(s.added_by), addedAt: s.added_at,
 });
 
 const checkOut = (c) => ({ date: c.date, routineId: c.routine_id, email: c.email, at: c.at, by: str(c.ticked_by) });
-const updateOut = (u) => ({ date: u.date, email: u.email, yesterday: u.yesterday, today: u.today, blockers: u.blockers, at: u.at });
+const fileOut = (f) => ({
+  id: f.id, name: f.name, url: f.url, mime: f.mime, size: Number(f.size) || 0, space: f.space || MAIN_SPACE,
+  uploadedBy: str(f.uploaded_by), uploadedAt: f.uploaded_at,
+});
+const callOut = (c) => ({
+  id: c.id, email: c.email, space: c.space || MAIN_SPACE, topic: c.topic, notes: c.notes, preferred: c.preferred,
+  status: c.status, meetingAt: str(c.meeting_at), duration: c.duration_min || 0, link: str(c.meeting_link),
+  reply: c.reply, handledBy: str(c.handled_by), createdAt: c.created_at, updatedAt: c.updated_at,
+});
 const activityOut = (a) => ({
   at: a.at, email: a.email, action: a.action, type: a.type, itemId: str(a.item_id),
   title: str(a.title), space: str(a.space), detail: str(a.detail),
 });
 
 // Columns where the screens send '' for "none".
-const NULLABLE = new Set(['assignee', 'due', 'priority', 'space']);
+const NULLABLE = new Set(['assignee', 'due', 'priority', 'client']);
 
 // Copies only the given keys, renaming app names to column names.
+// Every item has a space: '' (or nothing picked) means the main space.
 function columns(fields, map) {
   const out = {};
   for (const [key, col] of Object.entries(map)) {
-    if (fields[key] !== undefined) out[col] = NULLABLE.has(col) ? blank(fields[key]) : fields[key];
+    if (fields[key] === undefined) continue;
+    if (col === 'space') out[col] = fields[key] || MAIN_SPACE;
+    else out[col] = NULLABLE.has(col) ? blank(fields[key]) : fields[key];
   }
   return out;
 }
@@ -128,22 +141,27 @@ const ACTIONS = {
     const meRow = check(await sb.from('team').select('*').eq('email', me).maybeSingle());
     if (!meRow) fail(`You are not on this team yet. Ask the owner to add ${me}.`, 'NOT_MEMBER');
     sb.rpc('touch_last_active').then(() => {}, () => {});
-    const [team, spaces, tasks, routines, docs, sheets] = await Promise.all([
+    // The database returns only what this person may see (guests get no tasks, docs or sheets, and so on).
+    const [team, spaces, tasks, routines, docs, sheets, files, calls] = await Promise.all([
       sb.from('team').select('*').order('name'),
       sb.from('spaces').select('*').order('name'),
       allRows((a, b) => sb.from('tasks').select('*').order('id').range(a, b)),
-      sb.from('routines').select('*').eq('active', true).order('created_at'),
+      allRows((a, b) => sb.from('routines').select('*').order('created_at').order('id').range(a, b)),   // removed ones too: past days count them
       allRows((a, b) => sb.from('docs').select(DOC_META).order('id').range(a, b)),
       allRows((a, b) => sb.from('sheet_links').select('*').order('sort_order').order('id').range(a, b)),
+      allRows((a, b) => sb.from('drive_files').select('*').order('uploaded_at', { ascending: false }).order('id').range(a, b)),
+      allRows((a, b) => sb.from('call_requests').select('*').order('created_at', { ascending: false }).order('id').range(a, b)),
     ]);
     return {
       me: personOut(meRow),
       team: check(team).map(personOut),
       spaces: check(spaces).map(spaceOut),
       tasks: tasks.map(taskOut),
-      routines: check(routines).map(routineOut),
+      routines: routines.map(routineOut),
       docs: docs.map(docOut),
       sheets: sheets.map(sheetOut),
+      files: files.map(fileOut),
+      calls: calls.map(callOut),
     };
   },
 
@@ -153,7 +171,7 @@ const ACTIONS = {
   async 'tasks.save'(me, d) {
     const row = columns(d.fields || {}, {
       title: 'title', description: 'description', status: 'status', assignee: 'assignee', due: 'due',
-      priority: 'priority', space: 'space', checklist: 'checklist', order: 'sort_order',
+      priority: 'priority', space: 'space', checklist: 'checklist', order: 'sort_order', client: 'client',
     });
     if (row.title !== undefined) row.title = String(row.title).trim().slice(0, 300);
     if (!d.id) {
@@ -192,12 +210,11 @@ const ACTIONS = {
 
   // ---- daily
   async 'daily.get'(me, d, ctx) {
-    if (ctx.role === 'guest') return { checks: [], updates: [] };
-    const [checks, updates] = await Promise.all([
-      sb.from('daily_checks').select('*').gte('date', d.from).lte('date', d.to),
-      sb.from('updates').select('*').gte('date', d.from).lte('date', d.to),
-    ]);
-    return { checks: check(checks).map(checkOut), updates: check(updates).map(updateOut) };
+    if (ctx.role === 'guest') return { checks: [] };
+    // Members get only their own ticks; owner and admins everyone's (the database decides).
+    const checks = await allRows((a, b) => sb.from('daily_checks').select('*').gte('date', d.from).lte('date', d.to)
+      .order('date').order('routine_id').order('email').range(a, b));
+    return { checks: checks.map(checkOut) };
   },
 
   async 'daily.toggle'(me, d) {
@@ -215,10 +232,6 @@ const ACTIONS = {
     return { on: !!d.on };
   },
 
-  async 'daily.update'(me, d) {
-    const row = { date: d.date, email: me, yesterday: str(d.yesterday).slice(0, 2000), today: str(d.today).slice(0, 2000), blockers: str(d.blockers).slice(0, 2000) };
-    return updateOut(one(check(await sb.from('updates').upsert(row, { onConflict: 'date,email' }).select())));
-  },
 
   // ---- docs
   async 'docs.get'(me, d) {
@@ -280,6 +293,47 @@ const ACTIONS = {
     return { id: d.id };
   },
 
+  // ---- Drive: the "drive" function puts the file in Google Drive and adds it to the list
+  async 'drive.upload'(me, d) {
+    const form = new FormData();
+    form.append('file', d.file);
+    form.append('space', d.space || MAIN_SPACE);
+    return fileOut(await driveFunction(form));
+  },
+
+  async 'drive.delete'(me, d) {
+    await driveFunction(JSON.stringify({ action: 'delete', id: d.id }), 'application/json');
+    return { id: d.id };
+  },
+
+  // ---- calls: guests ask, owner and admins schedule or decline
+  async 'calls.request'(me, d) {
+    const row = {
+      topic: String(d.topic || '').trim().slice(0, 200), notes: String(d.notes || '').trim().slice(0, 2000),
+      preferred: String(d.preferred || '').trim().slice(0, 500), space: d.space || MAIN_SPACE,
+    };
+    if (!row.topic) fail('Say what the call is about.');
+    return callOut(one(check(await sb.from('call_requests').insert(row).select())));
+  },
+
+  async 'calls.update'(me, d) {
+    const f = d.fields || {};
+    const row = {};
+    if (f.status !== undefined) row.status = f.status;
+    if (f.meetingAt !== undefined) row.meeting_at = f.meetingAt || null;
+    if (f.duration !== undefined) row.duration_min = Number(f.duration) || null;
+    if (f.link !== undefined) row.meeting_link = String(f.link || '').trim() || null;
+    if (f.reply !== undefined) row.reply = String(f.reply || '').trim().slice(0, 1000);
+    if (row.meeting_link && !/^https:\/\//.test(row.meeting_link)) fail('The meeting link must start with https://');
+    return callOut(one(check(await sb.from('call_requests').update(row).eq('id', d.id).select(), 'You cannot change this call.')));
+  },
+
+  // A guest's own deadlines (title and date only).
+  async 'client.deadlines'() {
+    const rows = check(await sb.rpc('client_deadlines'));
+    return rows.map((t) => ({ id: t.id, title: t.title, due: t.due, done: !!t.done }));
+  },
+
   // ---- team and spaces
   async 'team.save'(me, d) {
     const email = String(d.email || '').trim().toLowerCase();
@@ -327,6 +381,22 @@ export async function supabaseCall(email, action, data, ctx = {}) {
   const fn = ACTIONS[action];
   if (!fn) fail(`Unknown action: ${action}`);
   return fn(email, data, ctx);
+}
+
+// Calls the "drive" server function as the signed-in person.
+async function driveFunction(body, contentType) {
+  const { data } = await sb.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) fail('Your sign-in expired. Please sign in again.', 'AUTH');
+  const res = await fetch(`${CONFIG.supabaseUrl}/functions/v1/drive`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, apikey: CONFIG.supabaseKey, ...(contentType ? { 'Content-Type': contentType } : {}) },
+    body,
+  });
+  const out = await res.json().catch(() => ({}));
+  if (res.status === 404 && !out.error) fail('Drive is not set up yet: the "drive" function is not deployed (see SETUP.md).');
+  if (!res.ok) fail(out.error || `Drive request failed (${res.status}).`, res.status === 401 ? 'AUTH' : res.status === 403 ? 'FORBIDDEN' : 'ERROR');
+  return out;
 }
 
 // A private broadcast channel for one doc's live edits (the database checks who may join).

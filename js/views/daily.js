@@ -1,4 +1,4 @@
-import { S, act, can, person, routinesOn, spaceName, staleCheck, personCanSee } from '../state.js';
+import { S, act, can, person, routinesOn, spaceName, staleCheck, personCanSee, defaultSpace } from '../state.js';
 import { call } from '../api.js';
 import { $, $$, esc, avatar, isoDate, addDays, fmtDay, fmtTime, openModal, confirmBox, toast } from '../util.js';
 
@@ -13,14 +13,14 @@ export default {
     }
     const date = /^\d{4}-\d{2}-\d{2}$/.test(params[0] || '') ? params[0] : isoDate();
     const stale = staleCheck();
-    const { checks, updates } = await call('daily.get', { from: date, to: date });
+    const { checks } = await call('daily.get', { from: date, to: date });
     if (stale()) return;   // moved to another page while loading
     const routines = routinesOn(date);
-    const people = S.team.filter((p) => p.role !== 'guest');
+    // Owner and admins see everyone's column; members only their own.
+    const people = can.admin() ? S.team.filter((p) => p.role !== 'guest') : [S.me];
     const expected = routines.reduce((n, r) => n + r.people.length, 0);
     const ticked = checks.filter((c) => routines.some((r) => r.id === c.routineId && r.people.includes(c.email))).length;
     const check = (rid, email) => checks.find((c) => c.routineId === rid && c.email === email);
-    const others = updates.filter((u) => u.email !== S.me.email);
     const isFuture = date > isoDate();
 
     $('#topbar-slot').innerHTML = `
@@ -33,12 +33,12 @@ export default {
       ${can.admin() ? '<button class="btn" id="manage-routines">Manage routines</button>' : ''}`;
 
     el.innerHTML = `
-      <div class="daily-grid">
+      <div class="daily-wrap">
         <section class="card flush">
           ${routines.length ? `<div class="table-wrap"><table class="table routine-table">
             <thead><tr><th>Routine</th>${people.map((p) => `<th class="center">${avatar(p, 24)}<span class="sr-only">${esc(p.name)}</span><div class="small">${esc(p.name.split(' ')[0])}</div></th>`).join('')}</tr></thead>
             <tbody>${routines.map((r) => `<tr>
-              <td><b>${esc(r.title)}</b><div class="small muted">${esc(daysLabel(r.days))} · ${r.assignees === 'everyone' ? 'everyone' : `${r.people.length} people`}${r.space ? ` · ${esc(spaceName(r.space))}` : ''}</div></td>
+              <td><b>${esc(r.title)}</b><div class="small muted">${esc(daysLabel(r.days))}${can.admin() ? ` · ${r.assignees === 'everyone' ? 'everyone' : `${r.people.length} ${r.people.length === 1 ? 'person' : 'people'}`}` : ''} · ${esc(spaceName(r.space))}</div></td>
               ${people.map((p) => {
                 if (!r.people.includes(p.email)) return '<td class="center muted" title="Not assigned">–</td>';
                 const c = check(r.id, p.email);
@@ -48,19 +48,8 @@ export default {
                   <div class="tick-time">${c ? esc(fmtTime(c.at)) : ''}</div></td>`;
               }).join('')}
             </tr>`).join('')}</tbody></table></div>
-            <p class="small muted pad">Tick a box when it's done. The time is saved and shows in History.${can.admin() ? ' Admins can tick for others.' : ''}</p>`
+            <p class="small muted pad">Tick a box when it's done. The time is saved${can.admin() ? ' and shows in History. Admins can tick for others.' : '.'}</p>`
           : `<div class="empty">No routines on this day.${can.admin() ? ' Add one with <b>Manage routines</b>.' : ''}</div>`}
-        </section>
-        <section class="updates">
-          ${others.map((u) => {
-            const p = person(u.email);
-            return `<div class="card update">
-              <div class="row">${avatar(p, 24)}<b>${esc(p.name)}</b><span class="small muted">${esc(fmtTime(u.at))}</span></div>
-              ${u.yesterday ? `<div><b>Yesterday:</b> ${esc(u.yesterday)}</div>` : ''}
-              ${u.today ? `<div><b>Today:</b> ${esc(u.today)}</div>` : ''}
-              <div><b>Blockers:</b> ${u.blockers ? `<span class="bad">${esc(u.blockers)}</span>` : 'none'}</div>
-            </div>`;
-          }).join('')}
         </section>
       </div>`;
 
@@ -116,7 +105,7 @@ function editRoutine(r, done) {
           ${people.map((p) => `<label class="pill-check"><input type="checkbox" name="who" value="${esc(p.email)}" ${!everyone && r.assignees.includes(p.email) ? 'checked' : ''}> ${esc(p.name)}</label>`).join('')}
         </div>
       </fieldset>
-      <label>Space<select class="input" name="space"><option value="">General</option>${S.spaces.map((s) => `<option value="${esc(s.id)}" ${r?.space === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      <label>Space<select class="input" name="space">${S.spaces.map((s) => `<option value="${esc(s.id)}" ${(r?.space || defaultSpace()) === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
       <div class="row">
         ${r ? '<button type="button" class="btn danger" data-delete>Delete</button>' : ''}
         <span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button>

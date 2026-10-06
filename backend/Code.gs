@@ -18,8 +18,8 @@ var SCHEMA = {
   Team: ['email', 'name', 'role', 'spaces', 'addedAt', 'lastActive'],
   Spaces: ['id', 'name', 'color', 'createdAt'],
   Tasks: ['id', 'title', 'description', 'status', 'assignee', 'due', 'priority', 'space',
-    'checklist', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'completedAt', 'completedBy', 'order'],
-  Routines: ['id', 'title', 'notes', 'assignees', 'days', 'space', 'active', 'createdAt', 'createdBy'],
+    'checklist', 'comments', 'createdAt', 'createdBy', 'updatedAt', 'completedAt', 'completedBy', 'order', 'client'],
+  Routines: ['id', 'title', 'notes', 'assignees', 'days', 'space', 'active', 'createdAt', 'createdBy', 'removedAt', 'history'],
   DailyChecks: ['date', 'routineId', 'email', 'at', 'by'],
   Updates: ['date', 'email', 'yesterday', 'today', 'blockers', 'at'],
   Docs: ['id', 'title', 'space', 'folder', 'pinned', 'version', 'updatedAt', 'updatedBy',
@@ -27,10 +27,14 @@ var SCHEMA = {
   DocVersions: ['docId', 'version', 'title', 'savedAt', 'savedBy', 'body1', 'body2', 'body3', 'body4', 'body5'],
   SheetLinks: ['id', 'name', 'url', 'mode', 'space', 'height', 'addedBy', 'addedAt', 'order', 'pinned'],
   Activity: ['at', 'email', 'action', 'type', 'itemId', 'title', 'space', 'detail'],
+  DriveFiles: ['id', 'name', 'driveId', 'url', 'mime', 'size', 'space', 'uploadedBy', 'uploadedAt'],
+  CallRequests: ['id', 'email', 'space', 'topic', 'notes', 'preferred', 'status', 'meetingAt', 'duration',
+    'link', 'reply', 'handledBy', 'createdAt', 'updatedAt'],
 };
 
 var ROLE_RANK = { guest: 1, member: 2, admin: 3, owner: 4 };
 var DONE_STATUS = 'done';        // the task status id that means "finished"
+var MAIN_SPACE = 'scinth';       // the team's own space; every other space is a client space
 var CELL_LIMIT = 49000;          // Google Sheets allows 50,000 characters per cell
 var BODY_CELLS = 5;              // so a doc can hold about 245,000 characters
 var DOC_LOCK_MINUTES = 10;       // an edit lock expires if the editor goes quiet
@@ -114,31 +118,45 @@ function findMember(ctx) {
 }
 
 // ---------------------------------------------------------------- permissions
+// The same rules as the Supabase database (supabase/migrations).
 
 function rank(ctx) { return ROLE_RANK[ctx.me.role] || 0; }
 function isAdmin(ctx) { return rank(ctx) >= ROLE_RANK.admin; }
+function isMember(ctx) { return rank(ctx) >= ROLE_RANK.member; }
 
 function require_(ok, msg) { if (!ok) fail(msg || 'Your role does not allow this.', 'FORBIDDEN'); }
 
-// Spaces this person may see; null means all of them.
-function allowedSpaces(ctx) {
-  if (isAdmin(ctx)) return null;
-  var s = String(ctx.me.spaces || '').trim();
-  if ((s === '' || s === '*') && ctx.me.role !== 'guest') return null;
-  return s.split(',').map(function (x) { return x.trim(); }).filter(String);
-}
+function listOf(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(String); }
 
+// team.spaces lists the client spaces someone sees ('*' = all); members always see the main space, guests never.
 function canSee(ctx, space) {
-  var allowed = allowedSpaces(ctx);
-  if (!allowed) return true;
-  if (!space) return ctx.me.role !== 'guest';
-  return allowed.indexOf(space) >= 0;
+  if (isAdmin(ctx)) return true;
+  var sp = space || MAIN_SPACE;
+  if (sp === MAIN_SPACE) return ctx.me.role !== 'guest';
+  var s = String(ctx.me.spaces || '').trim();
+  if (s === '*' && ctx.me.role !== 'guest') return true;
+  return listOf(s).indexOf(sp) >= 0;
 }
 
-function canEdit(ctx, space) { return rank(ctx) >= ROLE_RANK.member && canSee(ctx, space); }
+function canEdit(ctx, space) { return isMember(ctx) && canSee(ctx, space); }
 
 function canDelete(ctx, createdBy, space) {
-  return canSee(ctx, space) && (isAdmin(ctx) || (rank(ctx) >= ROLE_RANK.member && createdBy === ctx.email));
+  return canSee(ctx, space) && (isAdmin(ctx) || (isMember(ctx) && createdBy === ctx.email));
+}
+
+// Owner and admins see every task; members the ones assigned to them or made by them; guests none.
+function taskVisible(ctx, t) {
+  return isAdmin(ctx) || (isMember(ctx) && canSee(ctx, t.space) && (t.assignee === ctx.email || t.createdBy === ctx.email));
+}
+
+// Is (or was) this routine for me? Past assignments count, so old ticks keep their routine.
+function routineMine(ctx, r) {
+  if (!r.assignees || r.assignees === 'everyone' || listOf(r.assignees).indexOf(ctx.email) >= 0) return true;
+  return parseJson(r.history, []).some(function (h) { return !h.assignees || h.assignees.indexOf(ctx.email) >= 0; });
+}
+
+function routineVisible(ctx, r) {
+  return isAdmin(ctx) || (isMember(ctx) && canSee(ctx, r.space) && routineMine(ctx, r));
 }
 
 // ---------------------------------------------------------------- actions
@@ -148,34 +166,45 @@ var ACTIONS = {
 
   bootstrap: { fn: function (ctx) {
     touchLastActive(ctx);
-    var spaces = table('Spaces').rows.filter(function (s) { return canSee(ctx, s.id); });
+    var guest = ctx.me.role === 'guest';
     return {
       me: publicPerson(ctx.me),
-      team: table('Team').rows.map(publicPerson),
-      spaces: spaces.map(strip),
-      tasks: table('Tasks').rows.filter(function (t) { return canSee(ctx, t.space); }).map(taskOut),
-      routines: rank(ctx) >= ROLE_RANK.member
-        ? table('Routines').rows.filter(function (r) { return r.active !== 'false' && canSee(ctx, r.space); }).map(routineOut)
-        : [],
-      docs: table('Docs').rows.filter(function (d) { return canSee(ctx, d.space); }).map(docMeta),
-      sheets: table('SheetLinks').rows.filter(function (s) { return canSee(ctx, s.space); }).map(sheetOut),
+      // Guests see themselves plus the owner and admins; everyone else sees the whole team.
+      team: table('Team').rows.filter(function (p) {
+        return !guest || p.email === ctx.email || p.role === 'owner' || p.role === 'admin';
+      }).map(publicPerson),
+      spaces: table('Spaces').rows.filter(function (s) { return canSee(ctx, s.id); }).map(strip),
+      tasks: table('Tasks').rows.filter(function (t) { return taskVisible(ctx, t); }).map(taskOut),
+      routines: table('Routines').rows.filter(function (r) { return routineVisible(ctx, r); }).map(routineOut),
+      docs: isMember(ctx) ? table('Docs').rows.filter(function (d) { return canSee(ctx, d.space); }).map(docMeta) : [],
+      sheets: isMember(ctx) ? table('SheetLinks').rows.filter(function (s) { return canSee(ctx, s.space); }).map(sheetOut) : [],
+      files: table('DriveFiles').rows.filter(function (f) { return canSee(ctx, f.space); }).map(fileOut),
+      calls: table('CallRequests').rows.filter(function (c) { return isAdmin(ctx) || c.email === ctx.email; }).map(callOut),
     };
   } },
 
   // ---- tasks
   'tasks.save': { write: true, fn: function (ctx, d) {
     var t = table('Tasks');
-    var fields = pick(d.fields || {}, ['title', 'description', 'status', 'assignee', 'due', 'priority', 'space', 'checklist', 'order']);
+    var fields = pick(d.fields || {}, ['title', 'description', 'status', 'assignee', 'due', 'priority', 'space', 'checklist', 'order', 'client']);
     if (fields.checklist !== undefined) fields.checklist = JSON.stringify(fields.checklist || []);
     if (fields.title !== undefined) fields.title = String(fields.title).trim().slice(0, 300);
+    if (fields.space !== undefined) fields.space = fields.space || MAIN_SPACE;
+    if (fields.client !== undefined) {
+      fields.client = String(fields.client || '').trim().toLowerCase();
+      if (fields.client && !find(table('Team'), function (p) { return p.email === fields.client && p.role === 'guest'; })) {
+        fail('Pick the client from the list (clients are guests on the team).');
+      }
+    }
 
     if (!d.id) {
-      require_(canEdit(ctx, fields.space), 'You cannot add tasks in this space.');
+      var space = fields.space || MAIN_SPACE;
+      require_(canEdit(ctx, space), 'You cannot add tasks in this space.');
       if (!fields.title) fail('A task needs a name.');
       var task = Object.assign({
         id: newId(), status: 'todo', checklist: '[]', comments: '[]',
         createdAt: ctx.now, createdBy: ctx.email, updatedAt: ctx.now,
-      }, fields);
+      }, fields, { space: space });
       if (task.status === DONE_STATUS) { task.completedAt = ctx.now; task.completedBy = ctx.email; }
       insert(t, task);
       log(ctx, 'created', 'task', task);
@@ -183,8 +212,10 @@ var ACTIONS = {
     }
 
     var row = byId(t, d.id);
-    require_(canEdit(ctx, row.space), 'You cannot edit tasks in this space.');
+    require_(taskVisible(ctx, row) && canEdit(ctx, row.space), 'You cannot edit this task.');
     if (fields.space !== undefined) require_(canEdit(ctx, fields.space), 'You cannot move tasks into that space.');
+    var after = Object.assign({}, row, fields);
+    require_(taskVisible(ctx, after), 'Only an admin or whoever gave you this task can give it to someone else.');
     var before = row.status;
     Object.assign(row, fields, { updatedAt: ctx.now });
     var wasDone = before === DONE_STATUS;
@@ -199,7 +230,7 @@ var ACTIONS = {
       log(ctx, 'reopened', 'task', row);
     } else if (row.status !== before) {
       log(ctx, 'moved', 'task', row, row.status);
-    } else if (!(Object.keys(fields).length === 1 && fields.checklist !== undefined)) {
+    } else if (!Object.keys(fields).every(function (k) { return k === 'checklist' || k === 'order'; })) {
       log(ctx, 'updated', 'task', row);
     }
     update(t, row);
@@ -209,7 +240,7 @@ var ACTIONS = {
   'tasks.delete': { write: true, fn: function (ctx, d) {
     var t = table('Tasks');
     var row = byId(t, d.id);
-    require_(canDelete(ctx, row.createdBy, row.space), 'Only admins, or the person who made it, can delete this.');
+    require_(taskVisible(ctx, row) && canDelete(ctx, row.createdBy, row.space), 'Only admins, or the person who made it, can delete this.');
     remove(t, [row]);
     log(ctx, 'deleted', 'task', row);
     return { id: d.id };
@@ -218,7 +249,7 @@ var ACTIONS = {
   'tasks.comment': { write: true, fn: function (ctx, d) {
     var t = table('Tasks');
     var row = byId(t, d.id);
-    require_(canSee(ctx, row.space));
+    require_(taskVisible(ctx, row), 'That task is gone. It may have been deleted.');
     var text = String(d.text || '').trim().slice(0, 5000);
     if (!text) fail('Write something first.');
     var comments = parseJson(row.comments, []);
@@ -229,20 +260,41 @@ var ACTIONS = {
     return taskOut(row);
   } },
 
-  // ---- routines (admins set them up, everyone ticks them)
+  // A guest's own deadlines: title and date only.
+  'client.deadlines': { fn: function (ctx) {
+    return table('Tasks').rows
+      .filter(function (t) { return t.client === ctx.email && t.due; })
+      .map(function (t) { return { id: t.id, title: t.title, due: t.due, done: t.status === DONE_STATUS }; });
+  } },
+
+  // ---- routines (admins set them up; each person ticks their own)
   'routines.save': { write: true, fn: function (ctx, d) {
     require_(isAdmin(ctx), 'Only the owner and admins can set up routines.');
     var t = table('Routines');
     var f = pick(d.fields || {}, ['title', 'notes', 'assignees', 'days', 'space']);
     if (Array.isArray(f.days)) f.days = f.days.join(',');
     if (Array.isArray(f.assignees)) f.assignees = f.assignees.join(',');
+    if (f.space !== undefined) f.space = f.space || MAIN_SPACE;
     var row;
     if (d.id) {
-      row = Object.assign(byId(t, d.id), f);
+      row = byId(t, d.id);
+      // Remember how it was set up until now, so past days keep being counted that way.
+      var changed = ['assignees', 'days', 'space'].some(function (k) { return f[k] !== undefined && String(f[k]) !== String(row[k] || ''); });
+      if (changed) {
+        var history = parseJson(row.history, []);
+        history.push({
+          until: ctx.now,
+          assignees: !row.assignees || row.assignees === 'everyone' ? null : listOf(row.assignees),
+          days: String(row.days || '').split(',').filter(String).map(Number),
+          space: row.space || MAIN_SPACE,
+        });
+        row.history = JSON.stringify(history);
+      }
+      Object.assign(row, f);
       update(t, row);
     } else {
       if (!f.title) fail('A routine needs a name.');
-      row = insert(t, Object.assign({ id: newId(), assignees: 'everyone', days: '1,2,3,4,5', active: 'true', createdAt: ctx.now, createdBy: ctx.email }, f));
+      row = insert(t, Object.assign({ id: newId(), assignees: 'everyone', days: '1,2,3,4,5', space: MAIN_SPACE, active: 'true', createdAt: ctx.now, createdBy: ctx.email, history: '[]' }, f));
     }
     log(ctx, d.id ? 'updated' : 'created', 'routine', row);
     return routineOut(row);
@@ -253,26 +305,38 @@ var ACTIONS = {
     var t = table('Routines');
     var row = byId(t, d.id);
     row.active = 'false';      // keep it so old ticks still have a name in History
+    row.removedAt = ctx.now;   // and so past days still count it
     update(t, row);
     log(ctx, 'deleted', 'routine', row);
     return { id: d.id };
   } },
 
-  // ---- daily ticks and updates
+  // ---- daily ticks
   'daily.get': { fn: function (ctx, d) {
-    if (rank(ctx) < ROLE_RANK.member) return { checks: [], updates: [] };
+    if (!isMember(ctx)) return { checks: [] };
+    var routines = table('Routines');
     var inRange = function (r) { return r.date >= d.from && r.date <= d.to; };
     return {
-      checks: table('DailyChecks').rows.filter(inRange).map(strip),
-      updates: table('Updates').rows.filter(inRange).map(strip),
+      // Members get only their own ticks; owner and admins everyone's.
+      checks: table('DailyChecks').rows.filter(function (c) {
+        if (!inRange(c)) return false;
+        if (isAdmin(ctx)) return true;
+        var r = find(routines, function (x) { return x.id === c.routineId; });
+        return c.email === ctx.email && r && routineVisible(ctx, r);
+      }).map(strip),
     };
   } },
 
   'daily.toggle': { write: true, fn: function (ctx, d) {
-    require_(rank(ctx) >= ROLE_RANK.member);
+    require_(isMember(ctx));
     var who = String(d.email || ctx.email).toLowerCase();
     if (who !== ctx.email) require_(isAdmin(ctx), 'Only admins can tick routines for someone else.');
     var routine = byId(table('Routines'), d.routineId);
+    require_(routineVisible(ctx, routine), 'Your role does not allow this.');
+    var forMe = !routine.assignees || routine.assignees === 'everyone' || listOf(routine.assignees).indexOf(who) >= 0;
+    require_(forMe, 'This routine is not for that person.');
+    var tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    require_(d.date <= tomorrow, 'You cannot tick a routine for a future day.');
     var t = table('DailyChecks');
     // History shows whose routine it was, even when an admin ticked it for them.
     var forPerson = Object.assign({}, ctx, { email: who });
@@ -287,21 +351,10 @@ var ACTIONS = {
     return { on: !!d.on };
   } },
 
-  'daily.update': { write: true, fn: function (ctx, d) {
-    require_(rank(ctx) >= ROLE_RANK.member);
-    var t = table('Updates');
-    var row = find(t, function (r) { return r.date === d.date && r.email === ctx.email; });
-    var f = { yesterday: str(d.yesterday, 2000), today: str(d.today, 2000), blockers: str(d.blockers, 2000), at: ctx.now };
-    if (row) update(t, Object.assign(row, f));
-    else row = insert(t, Object.assign({ date: d.date, email: ctx.email }, f));
-    log(ctx, 'posted update', 'daily', { id: d.date, title: 'Daily update ' + d.date, space: '' });
-    return strip(row);
-  } },
-
-  // ---- docs
+  // ---- docs (team only)
   'docs.get': { fn: function (ctx, d) {
     var row = byId(table('Docs'), d.id);
-    require_(canSee(ctx, row.space));
+    require_(isMember(ctx) && canSee(ctx, row.space));
     return docFull(row);
   } },
 
@@ -309,13 +362,15 @@ var ACTIONS = {
     var t = table('Docs');
     var f = pick(d.fields || {}, ['title', 'space', 'folder', 'pinned', 'body']);
     if (f.pinned !== undefined) f.pinned = f.pinned ? 'true' : '';
+    if (f.space !== undefined) f.space = f.space || MAIN_SPACE;
     var body = f.body;
     delete f.body;
 
     if (!d.id) {
-      require_(canEdit(ctx, f.space), 'You cannot add docs in this space.');
+      var space = f.space || MAIN_SPACE;
+      require_(canEdit(ctx, space), 'You cannot add docs in this space.');
       var doc = Object.assign({ id: newId(), title: 'Untitled', version: 1, createdAt: ctx.now, createdBy: ctx.email,
-        updatedAt: ctx.now, updatedBy: ctx.email, lockedBy: d.lock ? ctx.email : '', lockedAt: d.lock ? ctx.now : '' }, f);
+        updatedAt: ctx.now, updatedBy: ctx.email, lockedBy: '', lockedAt: '' }, f, { space: space });
       setBody(doc, body || '');
       insert(t, doc);
       log(ctx, 'created', 'doc', doc);
@@ -325,11 +380,6 @@ var ACTIONS = {
     var row = byId(t, d.id);
     require_(canEdit(ctx, row.space), 'You cannot edit docs in this space.');
     if (f.space !== undefined) require_(canEdit(ctx, f.space), 'You cannot move docs into that space.');
-    var holder = lockHolder(row, ctx);
-    if (holder) fail(nameOf(holder) + ' is editing this doc right now.', 'LOCKED');
-    if (body !== undefined && d.baseVersion !== undefined && Number(d.baseVersion) !== Number(row.version)) {
-      fail('Someone saved a newer version while you were editing.', 'CONFLICT');
-    }
     if (body !== undefined && body !== getBody(row)) {
       if (d.final) {
         var v = { docId: row.id, version: row.version, title: row.title, savedAt: row.updatedAt, savedBy: row.updatedBy };
@@ -339,28 +389,10 @@ var ACTIONS = {
       setBody(row, body);
       row.version = Number(row.version || 1) + 1;
     }
-    Object.assign(row, f, { updatedAt: ctx.now, updatedBy: ctx.email });
-    if (d.final) { row.lockedBy = ''; row.lockedAt = ''; log(ctx, 'edited', 'doc', row); }
-    else if (row.lockedBy === ctx.email) row.lockedAt = ctx.now;   // autosave keeps the lock fresh
+    Object.assign(row, f, { updatedAt: ctx.now, updatedBy: ctx.email, lockedBy: '', lockedAt: '' });
+    if (d.final) log(ctx, 'edited', 'doc', row);
     update(t, row);
     return docFull(row);
-  } },
-
-  'docs.lock': { write: true, fn: function (ctx, d) {
-    var t = table('Docs');
-    var row = byId(t, d.id);
-    require_(canEdit(ctx, row.space), 'You cannot edit docs in this space.');
-    var holder = lockHolder(row, ctx);
-    if (d.on) {
-      if (holder) fail(nameOf(holder) + ' is editing this doc right now.', 'LOCKED');
-      row.lockedBy = ctx.email;
-      row.lockedAt = ctx.now;
-    } else if (!holder || isAdmin(ctx)) {
-      row.lockedBy = '';
-      row.lockedAt = '';
-    }
-    update(t, row);
-    return docMeta(row);
   } },
 
   'docs.delete': { write: true, fn: function (ctx, d) {
@@ -374,11 +406,13 @@ var ACTIONS = {
 
   'docs.search': { fn: function (ctx, d) {
     var q = String(d.q || '').toLowerCase().trim();
-    if (!q) return [];
+    if (!q || !isMember(ctx)) return [];
     return table('Docs').rows
       .filter(function (doc) { return canSee(ctx, doc.space); })
       .map(function (doc) {
-        var body = getBody(doc);
+        // Search the words, not the HTML tags.
+        var body = getBody(doc).replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+          .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/\s+/g, ' ');
         var i = body.toLowerCase().indexOf(q);
         var inTitle = String(doc.title).toLowerCase().indexOf(q) >= 0;
         if (i < 0 && !inTitle) return null;
@@ -391,18 +425,19 @@ var ACTIONS = {
 
   'docs.versions': { fn: function (ctx, d) {
     var doc = byId(table('Docs'), d.id);
-    require_(canSee(ctx, doc.space));
+    require_(isMember(ctx) && canSee(ctx, doc.space));
     return table('DocVersions').rows
       .filter(function (v) { return v.docId === d.id; })
       .map(function (v) { return { version: Number(v.version), title: v.title, savedAt: v.savedAt, savedBy: v.savedBy, body: getBody(v) }; })
       .reverse();
   } },
 
-  // ---- sheet links
+  // ---- sheet links (team only)
   'sheets.save': { write: true, fn: function (ctx, d) {
     var t = table('SheetLinks');
     var f = pick(d.fields || {}, ['name', 'url', 'mode', 'space', 'height', 'order', 'pinned']);
     if (f.pinned !== undefined) f.pinned = f.pinned ? 'true' : '';
+    if (f.space !== undefined) f.space = f.space || MAIN_SPACE;
     if (f.url !== undefined && !/^https:\/\/docs\.google\.com\//.test(f.url)) fail('That is not a Google Sheets link.');
     if (f.mode !== undefined && f.mode !== 'edit' && f.mode !== 'view') f.mode = 'edit';
     var row;
@@ -412,9 +447,10 @@ var ACTIONS = {
       if (f.space !== undefined) require_(canEdit(ctx, f.space));
       update(t, Object.assign(row, f));
     } else {
-      require_(canEdit(ctx, f.space), 'You cannot add sheets in this space.');
+      var space = f.space || MAIN_SPACE;
+      require_(canEdit(ctx, space), 'You cannot add sheets in this space.');
       if (!f.name || !f.url) fail('A sheet needs a name and a link.');
-      row = insert(t, Object.assign({ id: newId(), mode: 'edit', addedBy: ctx.email, addedAt: ctx.now }, f));
+      row = insert(t, Object.assign({ id: newId(), mode: 'edit', addedBy: ctx.email, addedAt: ctx.now }, f, { space: space }));
       log(ctx, 'added', 'sheet', { id: row.id, title: row.name, space: row.space });
     }
     return sheetOut(row);
@@ -427,6 +463,71 @@ var ACTIONS = {
     remove(t, [row]);
     log(ctx, 'removed', 'sheet', { id: row.id, title: row.name, space: row.space });
     return { id: d.id };
+  } },
+
+  // ---- Drive (demo mode: the file itself stays in the browser; the real site uses Google Drive)
+  'drive.add': { write: true, fn: function (ctx, d) {
+    var space = d.space || MAIN_SPACE;
+    require_(canSee(ctx, space), 'You cannot upload to that space.');
+    var name = String(d.name || '').slice(0, 255);
+    if (!name) fail('Pick a file to upload.');
+    var row = insert(table('DriveFiles'), {
+      id: newId(), name: name, driveId: String(d.driveId || ''), url: String(d.url || ''), mime: String(d.mime || ''),
+      size: Number(d.size) || 0, space: space, uploadedBy: ctx.email, uploadedAt: ctx.now,
+    });
+    log(ctx, 'uploaded', 'file', { id: row.id, title: row.name, space: row.space });
+    return fileOut(row);
+  } },
+
+  'drive.delete': { write: true, fn: function (ctx, d) {
+    var t = table('DriveFiles');
+    var row = byId(t, d.id);
+    require_(canSee(ctx, row.space) && (isAdmin(ctx) || row.uploadedBy === ctx.email), 'Only admins, or the person who uploaded it, can delete this.');
+    remove(t, [row]);
+    log(ctx, 'deleted', 'file', { id: row.id, title: row.name, space: row.space });
+    return { id: d.id, url: row.url };
+  } },
+
+  // ---- calls: guests ask, owner and admins schedule or decline
+  'calls.request': { write: true, fn: function (ctx, d) {
+    require_(ctx.me.role === 'guest', 'Calls are requested by clients.');
+    var space = d.space || listOf(ctx.me.spaces)[0];
+    require_(canSee(ctx, space), 'You cannot request a call for that space.');
+    var topic = String(d.topic || '').trim().slice(0, 200);
+    if (!topic) fail('Say what the call is about.');
+    var row = insert(table('CallRequests'), {
+      id: newId(), email: ctx.email, space: space, topic: topic, notes: str(d.notes, 2000).trim(), preferred: str(d.preferred, 500).trim(),
+      status: 'requested', createdAt: ctx.now, updatedAt: ctx.now,
+    });
+    log(ctx, 'requested', 'call', { id: row.id, title: row.topic, space: row.space });
+    return callOut(row);
+  } },
+
+  'calls.update': { write: true, fn: function (ctx, d) {
+    var t = table('CallRequests');
+    var row = byId(t, d.id);
+    var f = d.fields || {};
+    if (!isAdmin(ctx)) {
+      require_(row.email === ctx.email, 'You cannot change this call.');
+      var onlyStatus = Object.keys(f).every(function (k) { return k === 'status'; });
+      require_(onlyStatus && f.status === 'cancelled' && (row.status === 'requested' || row.status === 'scheduled'), 'You can only cancel your own request.');
+    }
+    var next = Object.assign({}, row);
+    if (f.status !== undefined) next.status = f.status;
+    if (f.meetingAt !== undefined) next.meetingAt = f.meetingAt || '';
+    if (f.duration !== undefined) next.duration = Number(f.duration) || '';
+    if (f.link !== undefined) next.link = String(f.link || '').trim();
+    if (f.reply !== undefined) next.reply = str(f.reply, 1000).trim();
+    if (['requested', 'scheduled', 'declined', 'cancelled'].indexOf(next.status) < 0) fail('That is not a call status.');
+    if (next.link && !/^https:\/\//.test(next.link)) fail('The meeting link must start with https://');
+    if (next.status === 'scheduled' && (!next.meetingAt || !next.duration)) fail('Pick a date, time and length for the call.');
+    var changed = next.status !== row.status || next.meetingAt !== row.meetingAt;
+    if (next.status !== row.status) next.handledBy = ctx.email;
+    next.updatedAt = ctx.now;
+    Object.assign(row, next);
+    update(t, row);
+    if (changed) log(ctx, next.status === 'requested' ? 'updated' : next.status, 'call', { id: row.id, title: row.topic, space: row.space });
+    return callOut(row);
   } },
 
   // ---- team, roles and spaces
@@ -444,15 +545,19 @@ var ACTIONS = {
       require_(!row || row.role === role, 'Only the owner can change roles.');
     }
     if (row && row.role === 'owner') fail('The owner role cannot be changed here.');
-    var spaces = Array.isArray(d.spaces) ? d.spaces.join(',') : String(d.spaces || '');
-    if (role === 'guest' && (!spaces || spaces === '*')) fail('Pick the space this guest can see.');
+    var spaces = (Array.isArray(d.spaces) ? d.spaces.join(',') : String(d.spaces == null ? '' : d.spaces)).trim();
+    if (role === 'admin') spaces = '*';
+    if (role === 'guest') {
+      if (!spaces || spaces === '*') fail('Pick the client space this guest belongs to.');
+      if (listOf(spaces).indexOf(MAIN_SPACE) >= 0) fail('Guests are clients: pick a client space, not Scinth.');
+    }
     if (row) {
       var before = row.role;
-      Object.assign(row, { name: str(d.name, 100) || row.name, role: role, spaces: spaces || '*' });
+      Object.assign(row, { name: str(d.name, 100) || row.name, role: role, spaces: spaces });
       update(t, row);
       log(ctx, before !== role ? 'changed role' : 'updated', 'person', { id: email, title: row.name, space: '' }, before !== role ? before + ' → ' + role : '');
     } else {
-      row = insert(t, { email: email, name: str(d.name, 100) || email.split('@')[0], role: role, spaces: spaces || '*', addedAt: ctx.now });
+      row = insert(t, { email: email, name: str(d.name, 100) || email.split('@')[0], role: role, spaces: spaces, addedAt: ctx.now });
       log(ctx, 'added', 'person', { id: email, title: row.name, space: '' }, role);
     }
     return publicPerson(row);
@@ -487,27 +592,40 @@ var ACTIONS = {
     return strip(row);
   } },
 
+  // A client space's items move to the main space; Scinth itself can't be deleted, and a
+  // space can't be deleted while it is some guest's only space.
   'spaces.delete': { write: true, fn: function (ctx, d) {
     require_(isAdmin(ctx), 'Only the owner and admins can manage spaces.');
+    if (d.id === MAIN_SPACE) fail('Scinth is the main space and cannot be deleted.');
     var t = table('Spaces');
     var row = byId(t, d.id);
+    var team = table('Team');
+    var stuck = team.rows.filter(function (p) {
+      return p.role === 'guest' && listOf(p.spaces).indexOf(row.id) >= 0 && listOf(p.spaces).every(function (x) { return x === row.id; });
+    });
+    if (stuck.length) {
+      fail(stuck.map(function (p) { return p.name; }).join(', ') + ' only belong(s) to this space. Move them to another client space or remove them first.');
+    }
     remove(t, [row]);
-    ['Tasks', 'Docs', 'SheetLinks', 'Routines'].forEach(function (name) {
+    ['Tasks', 'Docs', 'SheetLinks', 'Routines', 'DriveFiles', 'CallRequests'].forEach(function (name) {
       var tt = table(name);
-      tt.rows.forEach(function (r) { if (r.space === row.id) { r.space = ''; update(tt, r); } });
+      tt.rows.forEach(function (r) { if (r.space === row.id) { r.space = MAIN_SPACE; update(tt, r); } });
+    });
+    team.rows.forEach(function (p) {
+      if ((p.role === 'member' || p.role === 'guest') && listOf(p.spaces).indexOf(row.id) >= 0) {
+        p.spaces = listOf(p.spaces).filter(function (x) { return x !== row.id; }).join(',');
+        update(team, p);
+      }
     });
     log(ctx, 'deleted', 'space', { id: row.id, title: row.name, space: '' });
     return { id: d.id };
   } },
 
-  // ---- history
+  // ---- history: owner and admins
   'history.get': { fn: function (ctx, d) {
-    require_(rank(ctx) >= ROLE_RANK.member, 'Guests cannot see History.');
-    var own = !isAdmin(ctx);
+    require_(isAdmin(ctx), 'History is for the owner and admins.');
     return table('Activity').rows
-      .filter(function (a) {
-        return a.at >= d.from && a.at <= d.to && (!own || a.email === ctx.email) && canSee(ctx, a.space);
-      })
+      .filter(function (a) { return a.at >= d.from && a.at <= d.to; })
       .map(strip)
       .reverse()
       .slice(0, 2000);
@@ -517,11 +635,12 @@ var ACTIONS = {
 // ---------------------------------------------------------------- shaping
 
 function publicPerson(p) {
-  return { email: p.email, name: p.name, role: p.role, spaces: p.spaces || '*', lastActive: p.lastActive || '' };
+  return { email: p.email, name: p.name, role: p.role, spaces: String(p.spaces == null ? '' : p.spaces), lastActive: p.lastActive || '' };
 }
 
 function taskOut(t) {
   var o = strip(t);
+  o.space = t.space || MAIN_SPACE;
   o.checklist = parseJson(t.checklist, []);
   o.comments = parseJson(t.comments, []);
   o.order = Number(t.order) || 0;
@@ -530,13 +649,16 @@ function taskOut(t) {
 
 function routineOut(r) {
   var o = strip(r);
+  o.space = r.space || MAIN_SPACE;
+  o.active = r.active !== 'false';
   o.days = String(r.days || '').split(',').filter(String).map(Number);
-  o.assignees = !r.assignees || r.assignees === 'everyone' ? 'everyone' : r.assignees.split(',').filter(String);
+  o.assignees = !r.assignees || r.assignees === 'everyone' ? 'everyone' : listOf(r.assignees);
+  o.history = parseJson(r.history, []);
   return o;
 }
 
 function docMeta(d) {
-  return { id: d.id, title: d.title, space: d.space, folder: d.folder, pinned: d.pinned === 'true',
+  return { id: d.id, title: d.title, space: d.space || MAIN_SPACE, folder: d.folder, pinned: d.pinned === 'true',
     version: Number(d.version) || 1, updatedAt: d.updatedAt, updatedBy: d.updatedBy,
     lockedBy: d.lockedBy, lockedAt: d.lockedAt, createdBy: d.createdBy };
 }
@@ -549,10 +671,22 @@ function docFull(d) {
 
 function sheetOut(s) {
   var o = strip(s);
+  o.space = s.space || MAIN_SPACE;
   o.height = Number(s.height) || 0;
   o.pinned = s.pinned === 'true';
   o.order = Number(s.order) || 0;
   return o;
+}
+
+function fileOut(f) {
+  return { id: f.id, name: f.name, url: f.url, mime: f.mime, size: Number(f.size) || 0, space: f.space || MAIN_SPACE,
+    uploadedBy: f.uploadedBy, uploadedAt: f.uploadedAt };
+}
+
+function callOut(c) {
+  return { id: c.id, email: c.email, space: c.space || MAIN_SPACE, topic: c.topic, notes: c.notes, preferred: c.preferred,
+    status: c.status, meetingAt: c.meetingAt || '', duration: Number(c.duration) || 0, link: c.link || '', reply: c.reply || '',
+    handledBy: c.handledBy || '', createdAt: c.createdAt, updatedAt: c.updatedAt };
 }
 
 function getBody(row) {
@@ -605,7 +739,7 @@ function ss() {
 
 function ensureSchema(force) {
   var cache = CacheService.getScriptCache();
-  if (!force && cache.get('schema_v2')) return;   // bump when SCHEMA changes so headers get rewritten
+  if (!force && cache.get('schema_v3')) return;   // bump when SCHEMA changes so headers get rewritten
   Object.keys(SCHEMA).forEach(function (name) {
     var headers = SCHEMA[name];
     var sh = ss().getSheetByName(name);
@@ -615,7 +749,7 @@ function ensureSchema(force) {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sh.setFrozenRows(1);
   });
-  cache.put('schema_v2', '1', 21600);
+  cache.put('schema_v3', '1', 21600);
 }
 
 function table(name) {

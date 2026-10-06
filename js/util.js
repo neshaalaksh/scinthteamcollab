@@ -81,7 +81,9 @@ function hue(str) {
 }
 
 export function initials(name) {
-  return String(name || '?').split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('') || '?';
+  // First letter (or digit) of the first two words, skipping things like "(" in "Maya (Acme)".
+  return String(name || '?').split(/[\s._-]+/).map((p) => p.match(/[\p{L}\p{N}]/u)?.[0]).filter(Boolean)
+    .slice(0, 2).map((c) => c.toUpperCase()).join('') || '?';
 }
 
 export function avatar(person, size = 26) {
@@ -141,6 +143,26 @@ export function confirmBox(message, { ok = 'Delete', danger = true } = {}) {
       </div>`, { onClose: () => { if (!answered) resolve(false); } });
     $('[data-ok]', box).onclick = () => { answered = true; box.close(); resolve(true); };
   });
+}
+
+// Opens a web address in a new tab with a real link click (some hosts block window.open).
+export function openLink(url) {
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener';
+  document.body.append(a);
+  a.click();
+  a.remove();
+}
+
+export function fmtSize(bytes) {
+  if (!bytes) return '';
+  const u = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n < 10 && i ? n.toFixed(1) : Math.round(n)} ${u[i]}`;
 }
 
 export function debounce(fn, ms) {

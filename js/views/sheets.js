@@ -1,5 +1,5 @@
-import { S, act, can, inSpace, spaceName, person } from '../state.js';
-import { $, $$, esc, openModal, confirmBox, toast, avatar, timeAgo, lsGet, lsSet } from '../util.js';
+import { S, act, can, inSpace, spaceName, person, defaultSpace } from '../state.js';
+import { $, $$, esc, openModal, confirmBox, toast, avatar, timeAgo, lsGet, lsSet, openLink } from '../util.js';
 
 const sheetIcon = (size = 20) => `
   <svg class="sheet-ico" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">
@@ -166,7 +166,7 @@ export default {
       }
       const open = e.target.closest('[data-open]');
       const sheet = open && list.find((x) => x.id === open.dataset.open);
-      if (sheet) window.open(sheet.url, '_blank', 'noopener');
+      if (sheet) openLink(sheet.url);
     };
     $('.drive-search-input', el).oninput = (e) => { query = e.target.value; draw(); };
     $$('[data-layout]', el).forEach((b) => b.onclick = () => { lsSet('teamspace.sheets.view', b.dataset.layout); draw(); });
@@ -180,14 +180,14 @@ function editSheet(sheet, done) {
       <div class="modal-head"><h2>${sheet ? 'Edit sheet' : 'Add a Google Sheet'}</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></div>
       <label>Name<input class="input" name="name" required value="${esc(sheet?.name)}" placeholder="e.g. Sales tracker"></label>
       <label>Google Sheets link<input class="input" name="url" required value="${esc(sheet?.url)}" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
-      <label>Space<select class="input" name="space">${can.admin() || S.me.spaces === '*' || (sheet && !sheet.space) ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
+      <label>Space<select class="input" name="space">${S.spaces.filter((s) => can.edit(s.id) || s.id === sheet?.space).map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label>
       <div class="row">
         ${sheet && can.remove(sheet.addedBy, sheet.space) ? '<button type="button" class="btn danger" data-delete>Remove</button>' : ''}
         <span class="grow"></span><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button>
       </div>
     </form>`, { onClose: done });
   const form = $('form', box);
-  form.elements.space.value = sheet ? sheet.space : (S.space === 'all' ? (form.elements.space.options[0]?.value ?? '') : S.space);
+  form.elements.space.value = sheet ? sheet.space : defaultSpace();
   form.onsubmit = async (e) => {
     e.preventDefault();
     const f = form.elements;

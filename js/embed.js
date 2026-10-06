@@ -71,7 +71,16 @@ function embed(kind, label, src, openUrl, shape = 'tall') {
 }
 
 // height: pixels, or 'fill' to let the page decide (Sheets hub).
+// Where other sites can't be embedded (the hosted demo website sets window.TEAMSPACE_LINK_EMBEDS),
+// it shows a card that opens the link instead of an empty frame.
 export function embedHtml(info, height) {
+  if (typeof window !== 'undefined' && window.TEAMSPACE_LINK_EMBEDS) {
+    return `<figure class="embed embed-${info.kind} as-link">
+    <a class="embed-link" href="${escAttr(info.openUrl)}" target="_blank" rel="noopener">
+      <span class="embed-kind">${info.label}</span><span class="embed-open">Open ↗</span>
+    </a>
+  </figure>`;
+  }
   const h = height || (info.kind === 'sheet' ? 520 : 440);
   const style = info.shape === 'video' || height === 'fill' ? '' : `style="height:${h}px"`;
   return `<figure class="embed embed-${info.kind} ${info.shape} ${height === 'fill' ? 'fill' : ''}">

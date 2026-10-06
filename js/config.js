@@ -26,10 +26,16 @@ export const CONFIG = {
     { id: 'low', label: 'Low', bg: '#ECEDF0', fg: '#3F404A' },
   ],
 
+  // True only on the hosted demo website, where embeds, printing and downloads can't work:
+  // embeds show as links and those menu items are hidden.
+  demoSite: false,
+
   // Demo mode only: how often (seconds) to check for changes. The live app
   // hears about teammates' changes instantly.
   pollSeconds: 30,
 };
 
 export const DONE = 'done';
+// The main space: the team's own work. Every other space is a client space (clients are guests).
+export const MAIN_SPACE = 'scinth';
 export const isDemo = () => !CONFIG.supabaseUrl || !CONFIG.supabaseKey || !CONFIG.googleClientId;

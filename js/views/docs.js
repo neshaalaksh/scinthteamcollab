@@ -1,7 +1,7 @@
-import { S, act, can, inSpace, person, spaceName } from '../state.js';
+import { S, act, can, inSpace, person, spaceName, defaultSpace } from '../state.js';
 import { call } from '../api.js';
-import { isDemo } from '../config.js';
-import { $, $$, esc, timeAgo, fmtStamp, openModal, confirmBox, toast, debounce, initials, lsGet, lsSet } from '../util.js';
+import { isDemo, CONFIG } from '../config.js';
+import { $, $$, esc, timeAgo, fmtStamp, openModal, confirmBox, toast, debounce, initials, lsGet, lsSet, openLink } from '../util.js';
 import { renderMarkdown, renderDoc, isHtmlBody } from '../markdown.js';
 import { joinDoc, toB64, fromB64, REMOTE } from '../collab.js';
 import { mountToolbar, mountFindBar, attachSlash, openLinkDialog, popup } from '../doc-tools.js';
@@ -69,7 +69,7 @@ function renderTree(activeId) {
 }
 
 async function newDoc() {
-  const saved = await act('docs.save', { fields: { title: 'Untitled', space: S.space === 'all' ? '' : S.space, body: '' } });
+  const saved = await act('docs.save', { fields: { title: 'Untitled', space: defaultSpace(), body: '' } });
   if (!saved) return;
   S.docs.push({ ...saved, body: undefined });
   location.hash = `#/docs/${saved.id}`;
@@ -341,7 +341,7 @@ async function openDoc(main, id) {
     if (canWrite && !(ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); return; }
     ev.preventDefault();
     const href = a.getAttribute('href');
-    if (href.startsWith('#')) location.hash = href; else window.open(href, '_blank', 'noopener');
+    if (href.startsWith('#')) location.hash = href; else openLink(href);
   });
 
   $('#versions').onclick = () => showVersions(id, canWrite ? editor : null);
@@ -356,9 +356,7 @@ function docMenu(anchor, e, editor, titleEl) {
   const canDelete = doc && can.remove(doc.createdBy, doc.space);
   popup(anchor, `
     ${e.canWrite ? item('pin', doc?.pinned ? 'Unpin from Home' : 'Pin to Home') + item('details', 'Space and folder…') : ''}
-    ${item('link', 'Copy link')}
-    ${item('html', 'Download as web page (.html)')}
-    ${item('print', 'Print or save as PDF')}
+    ${CONFIG.demoSite ? '' : item('link', 'Copy link') + item('html', 'Download as web page (.html)') + item('print', 'Print or save as PDF')}
     ${item('wide', $('#doc-canvas')?.classList.contains('wide') ? 'Use page width' : 'Use full width')}
     ${canDelete ? `<div class="pop-sep"></div>${item('delete', 'Delete this doc', 'danger')}` : ''}`, {
     onPick: async (v) => {
@@ -396,12 +394,11 @@ function editDetails(e, doc) {
   const box = openModal(`
     <form class="stack">
       <div class="modal-head"><h2>Space and folder</h2><button type="button" class="icon-btn" data-close aria-label="Close">✕</button></div>
-      <label>Space <select class="input" name="space">${can.admin() || S.me.spaces === '*' || !doc.space ? '<option value="">General</option>' : ''}${S.spaces.map((s) => `<option value="${esc(s.id)}" ${doc.space === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      <label>Space <select class="input" name="space">${S.spaces.filter((s) => can.edit(s.id) || s.id === doc.space).map((s) => `<option value="${esc(s.id)}" ${doc.space === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
       <label>Folder <input class="input" name="folder" value="${esc(doc.folder || '')}" placeholder="optional"></label>
       <div class="row end"><button type="button" class="btn" data-close>Cancel</button><button class="btn primary">Save</button></div>
     </form>`);
   const form = $('form', box);
-  form.elements.space.value = doc.space || '';
   form.onsubmit = async (ev) => {
     ev.preventDefault();
     const saved = await act('docs.save', { id: e.id, fields: { space: form.elements.space.value, folder: form.elements.folder.value.trim() } });

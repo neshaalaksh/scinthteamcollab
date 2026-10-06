@@ -16,10 +16,15 @@ const FILTERS = {
 const ICON = {
   completed: ['✓', 'k-done'], ticked: ['↻', 'k-routine'], created: ['+', 'k-new'], commented: ['“', 'k-note'],
   deleted: ['✕', 'k-del'], removed: ['✕', 'k-del'], reopened: ['↺', 'k-new'], edited: ['✎', 'k-note'],
+  uploaded: ['↑', 'k-new'], requested: ['☎', 'k-note'], scheduled: ['☎', 'k-done'], declined: ['✕', 'k-del'], cancelled: ['✕', 'k-del'],
 };
 
 function describe(a) {
-  const what = { task: 'task', doc: 'doc', routine: 'routine', sheet: 'sheet', person: 'person', space: 'space', daily: '' }[a.type] ?? a.type;
+  const what = { task: 'task', doc: 'doc', routine: 'routine', sheet: 'sheet', person: 'person', space: 'space', file: 'file', call: 'call', daily: '' }[a.type] ?? a.type;
+  if (a.type === 'call') {
+    const verb = { requested: 'Requested a call', scheduled: 'Scheduled the call', declined: 'Declined the call', cancelled: 'Cancelled the call' }[a.action] || 'Updated the call';
+    return `${verb} <b>${esc(a.title)}</b>`;
+  }
   if (a.type === 'routine' && a.action === 'ticked') return `<b>${esc(a.title)}</b>`;
   if (a.type === 'task' && a.action === 'completed') return `<b>${esc(a.title)}</b>`;
   if (a.action === 'moved') return `Moved <b>${esc(a.title)}</b> to ${esc(statusById(a.detail).label)}`;
@@ -31,8 +36,8 @@ function describe(a) {
 export default {
   title: 'History',
   async render(el) {
-    if (S.me.role === 'guest') {
-      el.innerHTML = '<div class="empty">History is for team members.</div>';
+    if (!can.admin()) {
+      el.innerHTML = '<div class="empty">History is for the owner and admins.</div>';
       return;
     }
     const today = isoDate();

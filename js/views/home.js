@@ -1,4 +1,4 @@
-import { S, act, inSpace, routinesOn, isDone, statusById, staleCheck } from '../state.js';
+import { S, act, can, inSpace, routinesOn, isDone, statusById, staleCheck } from '../state.js';
 import { call } from '../api.js';
 import { esc, avatar, isoDate, addDays, parseDate, dueLabel, $$ } from '../util.js';
 import { openTask } from './tasks.js';
@@ -57,7 +57,7 @@ export default {
             return `<button class="row-btn" data-task="${esc(t.id)}"><span class="dot" style="--c:${statusById(t.status).color}"></span><span class="grow">${esc(t.title)}</span><span class="due ${due.cls}">${esc(due.text)}</span></button>`;
           }).join('') : '<p class="muted">Nothing assigned to you. Nice.</p>'}
         </section>
-        ${S.me.role === 'guest' ? '' : `
+        ${!can.admin() ? '' : `
         <section class="card">
           <div class="card-head"><h2>Team today</h2><a href="#/history">History</a></div>
           ${people.map(({ p, done, total }) => `<div class="team-row">${avatar(p, 28)}<span class="grow">${esc(p.name)}</span>
