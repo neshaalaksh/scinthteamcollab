@@ -99,6 +99,7 @@ function showLogin(message = '') {
         <p>Sign in with your work Google account.</p>
         <div id="gsi-button"></div>
       `}
+      <p class="muted small"><a href="privacy.html">Privacy Policy</a></p>
     </div>`;
   if (isDemo()) {
     $$('[data-demo]', box).forEach((b) => b.onclick = () => {
