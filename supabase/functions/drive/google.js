@@ -30,7 +30,10 @@ function pemToDer(pem) {
 
 async function googleError(res, what) {
   let detail = '';
-  try { detail = (await res.json())?.error?.message || ''; } catch { /* not JSON */ }
+  try {
+    const j = await res.json();
+    detail = j?.error?.message || [j?.error, j?.error_description].filter((v) => typeof v === 'string').join(': ');
+  } catch { /* not JSON */ }
   return new Error(`Google Drive ${what} failed (${res.status})${detail ? `: ${detail}` : ''}`);
 }
 
