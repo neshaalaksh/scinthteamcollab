@@ -137,7 +137,7 @@ export async function demoCall(email, action, data) {
     const key = `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
     try { await filePut(key, data.file); } catch { return { ok: false, error: "This browser couldn't store the file. Try a smaller one.", code: 'ERROR' }; }
     const res = await demoCall(email, 'drive.add', {
-      name: data.file.name, mime: data.file.type || 'application/octet-stream', size: data.file.size, space: data.space, url: `demo-file:${key}`,
+      name: data.file.name, mime: data.file.type || 'application/octet-stream', size: data.file.size, space: data.space, folder: data.folder, url: `demo-file:${key}`,
     });
     if (!res.ok) await fileDel(key).catch(() => {});
     return res;
@@ -295,8 +295,8 @@ function seed({ mod, db }) {
 
   // Sample files (their contents aren't in the demo; uploads you make are).
   put('DriveFiles', [
-    { id: 'f1', name: 'Acme brand guidelines.pdf', url: 'demo-file:sample-1', mime: 'application/pdf', size: 2457600, space: 'acme', uploadedBy: maya, uploadedAt: at(-2, 11, 20) },
-    { id: 'f2', name: 'Signed contract.pdf', url: 'demo-file:sample-2', mime: 'application/pdf', size: 384000, space: 'acme', uploadedBy: you, uploadedAt: at(-6, 16, 0) },
+    { id: 'f1', name: 'Acme brand guidelines.pdf', url: 'demo-file:sample-1', mime: 'application/pdf', size: 2457600, space: 'acme', folder: 'Brand', uploadedBy: maya, uploadedAt: at(-2, 11, 20) },
+    { id: 'f2', name: 'Signed contract.pdf', url: 'demo-file:sample-2', mime: 'application/pdf', size: 384000, space: 'acme', folder: 'Contracts', uploadedBy: you, uploadedAt: at(-6, 16, 0) },
     { id: 'f3', name: 'Northwind requirements.docx', url: 'demo-file:sample-3', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', size: 91000, space: 'northwind', uploadedBy: leo, uploadedAt: at(-1, 10, 5) },
     { id: 'f4', name: 'Team handbook.pdf', url: 'demo-file:sample-4', mime: 'application/pdf', size: 1200000, space: 'scinth', uploadedBy: alex, uploadedAt: at(-12, 9, 30) },
   ]);

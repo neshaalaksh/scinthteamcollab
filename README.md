@@ -20,7 +20,7 @@ Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, a s
 | History | Everything done, grouped by day, with charts. Owner and admins only. |
 | Docs | A Google Docs style editor: several people type in the same doc at once and see each other's cursors. Fonts, sizes, colours, alignment, lists, checklists, tables, images, find & replace, print/PDF. Type `/` for blocks and to embed a Google Sheet, Google Doc, task, Slides, YouTube and more. Keeps old versions. |
 | Sheets | Your team's key Google Sheets in tabs, each editable or read-only |
-| Drive | Files for the team and clients, stored in Google Drive. Clients upload too, and delete only their own. |
+| Drive | Files for the team and clients, stored in Google Drive with a folder per space (and folders inside a space). Each file shows who uploaded it and when; the uploader, owner and admins can rename, move or delete it. Clients upload too. |
 | Calls | Clients ask for a call; the owner and admins schedule it, inviting teammates (it lands on everyone's calendar), or decline it. Invited members see their calls here. |
 | Team & roles | The Owner and Admins add people and set roles and spaces |
 

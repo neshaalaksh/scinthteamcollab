@@ -63,9 +63,10 @@ export const can = {
   edit: (space) => rank() >= RANK.member && canSee(space),
   remove: (createdBy, space) => canSee(space) && (rank() >= RANK.admin || (rank() >= RANK.member && createdBy === S.me.email)),
   tickFor: (email) => rank() >= RANK.admin || (rank() >= RANK.member && email === S.me.email),
-  // Drive: anyone who can see the space uploads; uploader or admins delete.
+  // Drive: anyone who can see the space uploads; the uploader or admins rename, move and delete.
   upload: (space) => rank() >= RANK.guest && canSee(space),
   removeFile: (f) => canSee(f.space) && (rank() >= RANK.admin || f.uploadedBy === S.me.email),
+  editFile: (f) => can.removeFile(f),
 };
 
 // The pages each role has, in menu order. Guests are clients: Drive, Calendar and calls only.

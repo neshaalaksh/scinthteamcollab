@@ -12,7 +12,7 @@ Until you finish, the site runs in **demo mode**: fake data that stays in your o
 ## Step 1: Make the database (5 min)
 
 - [ ] At [supabase.com/dashboard](https://supabase.com/dashboard), click **New project**. Pick the region closest to your team.
-- [ ] Open **SQL Editor**. Paste and run each file in [`supabase/migrations`](supabase/migrations), in order (`…01_tables`, `…02_security`, `…03_triggers`, `…04_rpc`, `…05_live_docs`, `…05_sheet_pinned`, `…06_search_and_ticks`, `…01_roles_spaces_drive_calls`, `…02_events_invites_guest_team`). `…05_live_docs` turns on live co-editing in Docs; `…01_roles_spaces_drive_calls` sets up the roles, the Scinth space, Drive and calls; `…02_events_invites_guest_team` adds calendar events and call invites. Already set up? Just run the ones you haven't run yet, in order.
+- [ ] Open **SQL Editor**. Paste and run each file in [`supabase/migrations`](supabase/migrations), in order (`…01_tables`, `…02_security`, `…03_triggers`, `…04_rpc`, `…05_live_docs`, `…05_sheet_pinned`, `…06_search_and_ticks`, `…01_roles_spaces_drive_calls`, `…02_events_invites_guest_team`, `…01_drive_folders`). `…05_live_docs` turns on live co-editing in Docs; `…01_roles_spaces_drive_calls` sets up the roles, the Scinth space, Drive and calls; `…02_events_invites_guest_team` adds calendar events and call invites; `…01_drive_folders` gives each space its own Drive folder and lets people rename and move files. Already set up? Just run the ones you haven't run yet, in order.
 - [ ] Still in the SQL Editor, make yourself the Owner:
 
   ```sql
@@ -85,7 +85,18 @@ What each role sees:
 
 ## Step 7: Turn on Drive uploads (15 min)
 
-Files uploaded in the **Drive** tab go to a Google Drive folder; the site keeps the list. Until this step is done, uploading says "Drive is not set up yet" (everything else works).
+Files uploaded in the **Drive** tab go to a Google Drive folder; the site keeps the list. Inside that folder each space gets its own folder (made with the first upload to it), and folders people make in a space become folders inside that:
+
+```
+Teamspace files/          ← the folder you pick below
+├── Scinth/
+├── Acme Ltd/
+│   ├── Contracts/
+│   └── Brand/
+└── Northwind/
+```
+
+Renaming or moving a file in the site does the same in Google Drive, and renaming a space renames its folder (with the next upload or move into it). Until this step is done, uploading says "Drive is not set up yet" (everything else works).
 
 **1. Let the server function into Google Drive.** Pick one:
 
@@ -118,6 +129,8 @@ Then in Supabase: **Edge Functions → Secrets** (or `npx supabase secrets set N
 | `GOOGLE_REFRESH_TOKEN`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` | from part 1 (Gmail option, instead of the one above) |
 | `DRIVE_LINK_SHARING` | optional. `anyone` (default): each file can be opened by anyone with its link, so clients can open it without a Google invite. `folder`: files only open for people the folder is shared with. |
 | `DRIVE_MAX_MB` | optional, largest upload in MB (default 20) |
+
+**Already had Drive set up before space folders?** Run `…01_drive_folders` in the SQL Editor and deploy the function again (`npx supabase functions deploy drive`). Files uploaded earlier stay loose in the main folder until the owner or an admin opens **Drive** and clicks **Sort into folders**.
 
 Who can see a file **in the site** is still decided by the database (a client only ever sees their own space's files). `DRIVE_LINK_SHARING` only decides who can open a file's Google Drive link.
 

@@ -27,7 +27,7 @@ var SCHEMA = {
   DocVersions: ['docId', 'version', 'title', 'savedAt', 'savedBy', 'body1', 'body2', 'body3', 'body4', 'body5'],
   SheetLinks: ['id', 'name', 'url', 'mode', 'space', 'height', 'addedBy', 'addedAt', 'order', 'pinned'],
   Activity: ['at', 'email', 'action', 'type', 'itemId', 'title', 'space', 'detail'],
-  DriveFiles: ['id', 'name', 'driveId', 'url', 'mime', 'size', 'space', 'uploadedBy', 'uploadedAt'],
+  DriveFiles: ['id', 'name', 'driveId', 'url', 'mime', 'size', 'space', 'uploadedBy', 'uploadedAt', 'folder', 'updatedBy', 'updatedAt'],
   CallRequests: ['id', 'email', 'space', 'topic', 'notes', 'preferred', 'status', 'meetingAt', 'duration',
     'link', 'reply', 'handledBy', 'createdAt', 'updatedAt', 'attendees'],
   Events: ['id', 'title', 'kind', 'date', 'time', 'duration', 'notes', 'client', 'attendees', 'space', 'createdBy', 'createdAt', 'updatedAt'],
@@ -483,10 +483,41 @@ var ACTIONS = {
     if (!name) fail('Pick a file to upload.');
     var row = insert(table('DriveFiles'), {
       id: newId(), name: name, driveId: String(d.driveId || ''), url: String(d.url || ''), mime: String(d.mime || ''),
-      size: Number(d.size) || 0, space: space, uploadedBy: ctx.email, uploadedAt: ctx.now,
+      size: Number(d.size) || 0, space: space, folder: cleanFolder(d.folder), uploadedBy: ctx.email, uploadedAt: ctx.now,
     });
     log(ctx, 'uploaded', 'file', { id: row.id, title: row.name, space: row.space });
     return fileOut(row);
+  } },
+
+  // Rename and/or move to another space or folder: the uploader, or the owner and admins.
+  'drive.update': { write: true, fn: function (ctx, d) {
+    var t = table('DriveFiles');
+    var row = byId(t, d.id);
+    var f = d.fields || {};
+    require_(canSee(ctx, row.space) && (isAdmin(ctx) || row.uploadedBy === ctx.email), 'Only admins, or the person who uploaded it, can rename or move this.');
+    var name = f.name === undefined ? row.name : String(f.name).trim().slice(0, 255);
+    if (!name) fail('A file needs a name.');
+    var space = f.space === undefined ? row.space : (f.space || MAIN_SPACE);
+    require_(canSee(ctx, space) && !!find(table('Spaces'), function (s) { return s.id === space; }), 'You cannot move files to that space.');
+    var folder = f.folder === undefined ? (row.folder || '') : cleanFolder(f.folder);
+    var renamed = name !== row.name;
+    var moved = space !== row.space || folder !== (row.folder || '');
+    if (!renamed && !moved) return fileOut(row);
+    var oldName = row.name;
+    row.name = name; row.space = space; row.folder = folder; row.updatedBy = ctx.email; row.updatedAt = ctx.now;
+    update(t, row);
+    if (renamed) log(ctx, 'renamed', 'file', row, oldName);
+    if (moved) {
+      var sp = find(table('Spaces'), function (s) { return s.id === space; });
+      log(ctx, 'moved', 'file', row, (sp ? sp.name : space) + (folder ? ' / ' + folder : ''));
+    }
+    return fileOut(row);
+  } },
+
+  // Demo files aren't in Google Drive, so there is nothing to sort.
+  'drive.organize': { fn: function (ctx) {
+    require_(isAdmin(ctx), 'Only the owner and admins can sort the Drive folder.');
+    return { sorted: 0, failed: [], left: 0 };
   } },
 
   'drive.delete': { write: true, fn: function (ctx, d) {
@@ -731,7 +762,13 @@ function sheetOut(s) {
 
 function fileOut(f) {
   return { id: f.id, name: f.name, url: f.url, mime: f.mime, size: Number(f.size) || 0, space: f.space || MAIN_SPACE,
-    uploadedBy: f.uploadedBy, uploadedAt: f.uploadedAt };
+    folder: f.folder || '', sorted: true, uploadedBy: f.uploadedBy, uploadedAt: f.uploadedAt,
+    updatedBy: f.updatedBy || '', updatedAt: f.updatedAt || '' };
+}
+
+// A Drive folder name: one level, so no slashes. '' = straight in the space.
+function cleanFolder(v) {
+  return String(v || '').replace(/[\/\\]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 100);
 }
 
 function callOut(c) {
@@ -796,7 +833,7 @@ function ss() {
 
 function ensureSchema(force) {
   var cache = CacheService.getScriptCache();
-  if (!force && cache.get('schema_v4')) return;   // bump when SCHEMA changes so headers get rewritten
+  if (!force && cache.get('schema_v5')) return;   // bump when SCHEMA changes so headers get rewritten
   Object.keys(SCHEMA).forEach(function (name) {
     var headers = SCHEMA[name];
     var sh = ss().getSheetByName(name);
@@ -806,7 +843,7 @@ function ensureSchema(force) {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sh.setFrozenRows(1);
   });
-  cache.put('schema_v4', '1', 21600);
+  cache.put('schema_v5', '1', 21600);
 }
 
 function table(name) {
