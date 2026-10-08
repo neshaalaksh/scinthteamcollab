@@ -37,8 +37,12 @@ async function googleError(res, what) {
   return new Error(`Google Drive ${what} failed (${res.status})${detail ? `: ${detail}` : ''}`);
 }
 
-// A short-lived access token for the Drive API.
+// A short-lived access token for the Drive API, reused until a minute before it expires
+// (one upload makes several Drive calls).
+let saved = null;
 export async function accessToken(env, fetchFn = fetch) {
+  const who = env.GOOGLE_REFRESH_TOKEN || env.GOOGLE_SERVICE_ACCOUNT;
+  if (saved && saved.who === who && saved.fetchFn === fetchFn && saved.until > Date.now()) return saved.token;
   let body;
   if (env.GOOGLE_REFRESH_TOKEN) {
     body = new URLSearchParams({
@@ -63,19 +67,68 @@ export async function accessToken(env, fetchFn = fetch) {
   }
   const res = await fetchFn(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (!res.ok) throw await googleError(res, 'sign-in');
-  return (await res.json()).access_token;
+  const out = await res.json();
+  saved = { who, fetchFn, token: out.access_token, until: Date.now() + ((Number(out.expires_in) || 3600) - 60) * 1000 };
+  return out.access_token;
 }
 
-// Uploads bytes into the folder. Returns { id, url }.
+// Teamspace folders inside DRIVE_FOLDER_ID: one per space, and inside it one per folder the
+// team makes in that space. They are found by tags on the folder (appProperties), not by name,
+// so renaming a space renames its folder instead of starting a new one.
+const FOLDER = 'application/vnd.google-apps.folder';
+const quote = (v) => `'${String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+
+// The Drive folder for a space (and, if given, a folder in it), made if missing.
+// Returns its ID. `cache` (a Map) saves repeat lookups within one request.
+export async function folderFor(env, { space, spaceName, folder = '' }, fetchFn = fetch, cache = new Map()) {
+  if (!env.DRIVE_FOLDER_ID) throw new Error('Drive is not set up yet: add DRIVE_FOLDER_ID to the "drive" function (see SETUP.md).');
+  const key = `${space}\n${folder}`;
+  if (cache.has(key)) return cache.get(key);
+  const token = await accessToken(env, fetchFn);
+  const spaceId = await ensureFolder(token, fetchFn, env.DRIVE_FOLDER_ID, { teamspaceSpace: space }, spaceName || space);
+  const id = folder ? await ensureFolder(token, fetchFn, spaceId, { teamspaceSpace: space, teamspaceFolder: folder }, folder) : spaceId;
+  cache.set(key, id);
+  return id;
+}
+
+async function ensureFolder(token, fetchFn, parent, tags, name) {
+  const auth = { Authorization: `Bearer ${token}` };
+  const q = [`${quote(parent)} in parents`, `mimeType = '${FOLDER}'`, 'trashed = false',
+    ...Object.entries(tags).map(([k, v]) => `appProperties has { key=${quote(k)} and value=${quote(v)} }`)].join(' and ');
+  const params = new URLSearchParams({
+    q, fields: 'files(id,name)', orderBy: 'createdTime', pageSize: '1',
+    supportsAllDrives: 'true', includeItemsFromAllDrives: 'true', corpora: 'allDrives',
+  });
+  const found = await fetchFn(`${DRIVE}/files?${params}`, { headers: auth });
+  if (!found.ok) throw await googleError(found, 'folder lookup');
+  const hit = (await found.json()).files?.[0];
+  if (hit) {
+    if (hit.name !== name) {   // the space was renamed: keep Drive in step
+      const ren = await fetchFn(`${DRIVE}/files/${encodeURIComponent(hit.id)}?supportsAllDrives=true`, {
+        method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+      });
+      if (!ren.ok) console.error('Could not rename Drive folder', hit.id, ren.status);
+    }
+    return hit.id;
+  }
+  const made = await fetchFn(`${DRIVE}/files?supportsAllDrives=true&fields=id`, {
+    method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: FOLDER, parents: [parent], appProperties: tags }),
+  });
+  if (!made.ok) throw await googleError(made, 'new folder');
+  return (await made.json()).id;
+}
+
+// Uploads bytes into the given folder (default: the main folder). Returns { id, url }.
 // Uses a resumable upload, which works for files of any size (multipart is capped at 5 MB).
-export async function uploadFile(env, { name, mime, bytes }, fetchFn = fetch) {
+export async function uploadFile(env, { name, mime, bytes, parent }, fetchFn = fetch) {
   if (!env.DRIVE_FOLDER_ID) throw new Error('Drive is not set up yet: add DRIVE_FOLDER_ID to the "drive" function (see SETUP.md).');
   const token = await accessToken(env, fetchFn);
   const auth = { Authorization: `Bearer ${token}` };
   const start = await fetchFn(`${UPLOAD}/files?uploadType=resumable&supportsAllDrives=true&fields=id,webViewLink`, {
     method: 'POST',
     headers: { ...auth, 'Content-Type': 'application/json; charset=UTF-8', 'X-Upload-Content-Type': mime || 'application/octet-stream' },
-    body: JSON.stringify({ name, parents: [env.DRIVE_FOLDER_ID] }),
+    body: JSON.stringify({ name, parents: [parent || env.DRIVE_FOLDER_ID] }),
   });
   if (!start.ok) throw await googleError(start, 'upload');
   const session = start.headers.get('Location');
@@ -105,4 +158,29 @@ export async function deleteFile(env, id, fetchFn = fetch) {
     method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok && res.status !== 404) throw await googleError(res, 'delete');
+}
+
+// Renames and/or moves a file in Drive. `to` is the folder ID it should end up in.
+// Returns what it was before ({ name, parents }), so a caller can undo it.
+export async function updateFile(env, id, { name, to }, fetchFn = fetch) {
+  const token = await accessToken(env, fetchFn);
+  const auth = { Authorization: `Bearer ${token}` };
+  const url = `${DRIVE}/files/${encodeURIComponent(id)}`;
+  const cur = await fetchFn(`${url}?supportsAllDrives=true&fields=name,parents`, { headers: auth });
+  if (!cur.ok) throw await googleError(cur, 'lookup');
+  const before = await cur.json();
+  const parents = before.parents || [];
+  const params = new URLSearchParams({ supportsAllDrives: 'true', fields: 'id' });
+  if (to && !(parents.length === 1 && parents[0] === to)) {
+    params.set('addParents', to);
+    const remove = parents.filter((p) => p !== to);
+    if (remove.length) params.set('removeParents', remove.join(','));
+  }
+  const body = name && name !== before.name ? { name } : {};
+  if (!params.has('addParents') && !body.name) return before;
+  const res = await fetchFn(`${url}?${params}`, {
+    method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await googleError(res, 'update');
+  return before;
 }

@@ -64,9 +64,12 @@ const sheetOut = (s) => ({
 });
 
 const checkOut = (c) => ({ date: c.date, routineId: c.routine_id, email: c.email, at: c.at, by: str(c.ticked_by) });
+// folder: a folder inside the space ('' = none). sorted: false for files still loose in the
+// main Google Drive folder (uploaded before each space had its own).
 const fileOut = (f) => ({
   id: f.id, name: f.name, url: f.url, mime: f.mime, size: Number(f.size) || 0, space: f.space || MAIN_SPACE,
-  uploadedBy: str(f.uploaded_by), uploadedAt: f.uploaded_at,
+  folder: str(f.folder), sorted: !!f.drive_folder,
+  uploadedBy: str(f.uploaded_by), uploadedAt: f.uploaded_at, updatedBy: str(f.updated_by), updatedAt: str(f.updated_at),
 });
 const callOut = (c) => ({
   id: c.id, email: c.email, space: c.space || MAIN_SPACE, topic: c.topic, notes: c.notes, preferred: c.preferred,
@@ -306,7 +309,19 @@ const ACTIONS = {
     const form = new FormData();
     form.append('file', d.file);
     form.append('space', d.space || MAIN_SPACE);
+    form.append('folder', d.folder || '');
     return fileOut(await driveFunction(form));
+  },
+
+  // Rename and/or move (to another space or folder); the file in Google Drive changes too.
+  async 'drive.update'(me, d) {
+    const f = d.fields || {};
+    return fileOut(await driveFunction(JSON.stringify({ action: 'update', id: d.id, name: f.name, space: f.space, folder: f.folder }), 'application/json'));
+  },
+
+  // Owner and admins: moves older files into their space folders in Google Drive, a batch at a time.
+  async 'drive.organize'() {
+    return driveFunction(JSON.stringify({ action: 'organize' }), 'application/json');
   },
 
   async 'drive.delete'(me, d) {

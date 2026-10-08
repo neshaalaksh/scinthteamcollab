@@ -16,7 +16,7 @@ const FILTERS = {
 const ICON = {
   completed: ['✓', 'k-done'], ticked: ['↻', 'k-routine'], created: ['+', 'k-new'], commented: ['“', 'k-note'],
   deleted: ['✕', 'k-del'], removed: ['✕', 'k-del'], reopened: ['↺', 'k-new'], edited: ['✎', 'k-note'],
-  uploaded: ['↑', 'k-new'], requested: ['☎', 'k-note'], scheduled: ['☎', 'k-done'], declined: ['✕', 'k-del'], cancelled: ['✕', 'k-del'],
+  uploaded: ['↑', 'k-new'], renamed: ['✎', 'k-note'], requested: ['☎', 'k-note'], scheduled: ['☎', 'k-done'], declined: ['✕', 'k-del'], cancelled: ['✕', 'k-del'],
 };
 
 function describe(a) {
@@ -28,6 +28,8 @@ function describe(a) {
   }
   if (a.type === 'routine' && a.action === 'ticked') return `<b>${esc(a.title)}</b>`;
   if (a.type === 'task' && a.action === 'completed') return `<b>${esc(a.title)}</b>`;
+  if (a.type === 'file' && a.action === 'moved') return `Moved file <b>${esc(a.title)}</b> to ${esc(a.detail)}`;
+  if (a.type === 'file' && a.action === 'renamed') return `Renamed file <b>${esc(a.detail)}</b> to <b>${esc(a.title)}</b>`;
   if (a.action === 'moved') return `Moved <b>${esc(a.title)}</b> to ${esc(statusById(a.detail).label)}`;
   if (a.action === 'changed role') return `Changed <b>${esc(a.title)}</b>'s role: ${esc(a.detail)}`;
   if (a.type === 'daily') return 'Posted daily update';
