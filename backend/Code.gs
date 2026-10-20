@@ -31,6 +31,7 @@ var SCHEMA = {
   CallRequests: ['id', 'email', 'space', 'topic', 'notes', 'preferred', 'status', 'meetingAt', 'duration',
     'link', 'reply', 'handledBy', 'createdAt', 'updatedAt', 'attendees'],
   Events: ['id', 'title', 'kind', 'date', 'time', 'duration', 'notes', 'client', 'attendees', 'space', 'createdBy', 'createdAt', 'updatedAt'],
+  Reminders: ['id', 'text', 'date', 'time', 'forEmail', 'createdBy', 'createdAt', 'doneAt'],
 };
 
 var ROLE_RANK = { guest: 1, member: 2, admin: 3, owner: 4 };
@@ -162,6 +163,13 @@ function eventVisible(ctx, e) {
   return e.client === ctx.email;
 }
 
+// Reminders are private: only the person who set one and the person it is for see it.
+// Ticked-off ones are kept a couple of days (so a mis-tick can be undone), then no longer loaded.
+function reminderVisible(ctx, r) {
+  if (!isMember(ctx) || (r.createdBy !== ctx.email && r.forEmail !== ctx.email)) return false;
+  return !r.doneAt || Date.now() - new Date(r.doneAt).getTime() < 2 * 86400000;
+}
+
 // Invited people must be on the team and not guests.
 function checkAttendees(list) {
   var team = table('Team');
@@ -203,6 +211,7 @@ var ACTIONS = {
       files: table('DriveFiles').rows.filter(function (f) { return canSee(ctx, f.space); }).map(fileOut),
       calls: table('CallRequests').rows.filter(function (c) { return callVisible(ctx, c); }).map(callOut),
       events: table('Events').rows.filter(function (e) { return eventVisible(ctx, e); }).map(eventOut),
+      reminders: table('Reminders').rows.filter(function (r) { return reminderVisible(ctx, r); }).map(reminderOut),
     };
   } },
 
@@ -612,6 +621,42 @@ var ACTIONS = {
     return { id: d.id };
   } },
 
+  // ---- reminders (Home). Private, so not written to History.
+  'reminders.save': { write: true, fn: function (ctx, d) {
+    require_(isMember(ctx), 'Reminders are for people on the team.');
+    var t = table('Reminders');
+    var f = d.fields || {};
+    var row = d.id ? find(t, function (r) { return r.id === d.id; }) : null;
+    if (d.id && (!row || (row.createdBy !== ctx.email && row.forEmail !== ctx.email))) fail('That reminder is gone. It may have been deleted.', 'FORBIDDEN');
+    // The person it is for (when someone else set it) can only tick it off.
+    if (row && row.createdBy !== ctx.email && Object.keys(f).some(function (k) { return k !== 'done'; })) {
+      fail('Only the person who set this reminder can change it.', 'FORBIDDEN');
+    }
+    var next = Object.assign({}, row || { id: newId(), date: '', time: '', forEmail: ctx.email, createdBy: ctx.email, createdAt: ctx.now, doneAt: '' });
+    if (f.text !== undefined) next.text = String(f.text || '').trim().slice(0, 300);
+    if (f.date !== undefined) next.date = String(f.date || '');
+    if (f.time !== undefined) next.time = String(f.time || '');
+    if (f.forEmail !== undefined) next.forEmail = String(f.forEmail || ctx.email).trim().toLowerCase();
+    if (f.done !== undefined) next.doneAt = f.done ? (row && row.doneAt) || ctx.now : '';
+    if (!next.text) fail('Write what to be reminded about.');
+    if (next.date && !/^\d{4}-\d{2}-\d{2}$/.test(next.date)) fail('That date does not look right.');
+    if (!next.date) next.time = '';
+    if (next.time && !/^\d{2}:\d{2}$/.test(next.time)) fail('That time does not look right.');
+    if (!find(table('Team'), function (p) { return p.email === next.forEmail && p.role !== 'guest'; })) {
+      fail('Reminders can only go to people on the team.');
+    }
+    if (row) { Object.assign(row, next); update(t, row); } else row = insert(t, next);
+    return reminderOut(row);
+  } },
+
+  'reminders.delete': { write: true, fn: function (ctx, d) {
+    var t = table('Reminders');
+    var row = find(t, function (r) { return r.id === d.id; });
+    if (!row || (row.createdBy !== ctx.email && row.forEmail !== ctx.email)) fail('That reminder is gone. It may have been deleted.', 'FORBIDDEN');
+    remove(t, [row]);
+    return { id: d.id };
+  } },
+
   // ---- team, roles and spaces
   'team.save': { write: true, fn: function (ctx, d) {
     require_(isAdmin(ctx), 'Only the owner and admins can manage people.');
@@ -654,6 +699,8 @@ var ACTIONS = {
     if (row.role === 'owner') fail('The owner cannot be removed.');
     if (row.role === 'admin') require_(ctx.me.role === 'owner', 'Only the owner can remove an admin.');
     remove(t, [row]);
+    var reminders = table('Reminders');
+    remove(reminders, reminders.rows.filter(function (r) { return r.forEmail === email; }));   // like the database's "on delete cascade"
     log(ctx, 'removed', 'person', { id: email, title: row.name, space: '' });
     return { email: email };
   } },
@@ -783,6 +830,11 @@ function eventOut(e) {
     createdBy: e.createdBy, createdAt: e.createdAt };
 }
 
+function reminderOut(r) {
+  return { id: r.id, text: r.text, date: r.date || '', time: r.time || '', forEmail: r.forEmail,
+    createdBy: r.createdBy || '', createdAt: r.createdAt, doneAt: r.doneAt || '' };
+}
+
 function getBody(row) {
   var s = '';
   for (var i = 1; i <= BODY_CELLS; i++) s += row['body' + i] || '';
@@ -833,7 +885,7 @@ function ss() {
 
 function ensureSchema(force) {
   var cache = CacheService.getScriptCache();
-  if (!force && cache.get('schema_v5')) return;   // bump when SCHEMA changes so headers get rewritten
+  if (!force && cache.get('schema_v6')) return;   // bump when SCHEMA changes so headers get rewritten
   Object.keys(SCHEMA).forEach(function (name) {
     var headers = SCHEMA[name];
     var sh = ss().getSheetByName(name);
@@ -843,7 +895,7 @@ function ensureSchema(force) {
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sh.setFrozenRows(1);
   });
-  cache.put('schema_v5', '1', 21600);
+  cache.put('schema_v6', '1', 21600);
 }
 
 function table(name) {

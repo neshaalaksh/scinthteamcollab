@@ -17,6 +17,7 @@ export const S = {
   files: [],
   calls: [],
   events: [],   // calendar events and deadlines
+  reminders: [],   // Home's reminder bar: yours, and the ones you set for teammates
   space: lsGet('teamspace.space', 'all'),
   view: 0,   // bumped on every page render, so a slow render can tell it has been replaced
 };

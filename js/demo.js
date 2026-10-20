@@ -319,6 +319,19 @@ function seed({ mod, db }) {
     ev('e5', 'Quarterly planning', 'event', 9, '', '', '', [alex], 'scinth', you),
   ]);
 
+  // Reminders on Home: your own, one Alex sent you, and one you sent Sam.
+  const rem = (id, text, day, time, forEmail, createdBy) => ({
+    id, text, date: day === '' ? '' : addDays(today, day), time, forEmail, createdBy, createdAt: at(-1, 9, 0), doneAt: '',
+  });
+  put('Reminders', [
+    rem('m1', 'Call the accountant about VAT', 0, '16:00', you, you),
+    rem('m2', 'Send Maya the signed contract', 1, '', you, alex),
+    rem('m3', 'Renew the domain name', 5, '', you, you),
+    rem('m4', 'Buy printer ink', '', '', you, you),
+    rem('m5', 'Check the Northwind requirements doc', 0, '', sam, you),
+    rem('m6', 'Book a table for the team lunch', 0, '11:00', alex, alex),
+  ]);
+
   const act = (day, hh, mm, email, action, type, itemId, title, space, detail = '') => ({ at: at(day, hh, mm), email, action, type, itemId, title, space, detail });
   const activity = [
     act(-3, 10, 2, you, 'created', 'task', 't3', 'Plan Q4 budget', 'scinth'),

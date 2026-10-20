@@ -2,6 +2,7 @@ import { S, act, can, inSpace, routinesOn, isDone, statusById, staleCheck } from
 import { call } from '../api.js';
 import { esc, avatar, isoDate, addDays, parseDate, dueLabel, $$ } from '../util.js';
 import { openTask } from './tasks.js';
+import { renderReminderBar } from '../reminders.js';
 
 export default {
   title: 'Home',
@@ -77,8 +78,12 @@ export default {
           <div class="card-head"><h2>Pinned</h2></div>
           ${pinned.map((p) => `<a class="pin" href="${esc(p.href)}"${p.ext ? ' target="_blank" rel="noopener"' : ''}><span class="kind kind-${p.kind.toLowerCase()}">${p.kind}</span>${esc(p.name)}</a>`).join('') || '<p class="muted">Pin docs and sheets to share them with the team here.</p>'}
         </section>
-      </div>`;
+      </div>
+      ${S.me.role === 'guest' ? '' : '<section class="card reminder-bar" id="reminder-bar" aria-label="Reminders"></section>'}
+`;
 
+    const bar = el.querySelector('#reminder-bar');
+    if (bar) renderReminderBar(bar);
     $$('[data-task]', el).forEach((b) => b.onclick = () => openTask(b.dataset.task, () => this.render(el)));
     $$('[data-routine]', el).forEach((box) => box.onchange = async () => {
       box.closest('label').classList.toggle('is-done', box.checked);

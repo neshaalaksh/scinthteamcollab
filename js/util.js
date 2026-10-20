@@ -97,7 +97,8 @@ export function toast(message, kind = 'info') {
   el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   el.textContent = message;
   $('#toasts').append(el);
-  const life = kind === 'error' ? 6000 : 2500;
+  const life = kind === 'reminder' ? 12000 : kind === 'error' ? 6000 : 2500;
+  if (kind === 'reminder') { el.title = 'Click to close'; el.onclick = () => el.remove(); }
   setTimeout(() => el.classList.add('out'), life);
   setTimeout(() => el.remove(), life + 400);
 }

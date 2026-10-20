@@ -13,7 +13,7 @@ Our own ClickUp-style workspace: tasks, daily routines, docs, Google Sheets, a s
 
 | Screen | What it does |
 |---|---|
-| Home | Your routines today, your tasks, what's due this week, pinned docs and sheets, and (owner and admins) the team's progress |
+| Home | A reminder bar (quick reminders for yourself or a teammate, with an optional date and time that pops up when it comes), your routines today, your tasks, what's due this week, pinned docs and sheets, and (owner and admins) the team's progress |
 | Tasks | Board (drag cards between and within columns) or list. Assignee, due date, priority, space, checklist, comments. Saves who completed it and when. Owner and admins see every task; members see theirs and the ones they gave out. |
 | Calendar | Month or week view of tasks due and done, routine ticks per day, scheduled client calls, and events and deadlines (anyone on the team adds them, for a client and/or inviting teammates). Clients see only their own calls and the events made for them. |
 | Daily | Repeating routines with a tick per person (time saved). Members see their own; owner and admins everyone's. |
@@ -48,6 +48,7 @@ js/supabase.js      every action (save task, tick routine…) done with Supabase
 js/state.js         loaded data and permission checks for showing buttons
 js/demo.js          demo mode: runs backend/Code.gs in the browser (uploads stay in the browser)
 js/views/*.js       one file per screen
+js/reminders.js     the reminder bar on Home, and the pop-up when a reminder's time comes
 js/collab.js        live co-editing: shares each doc's changes and cursors with everyone who has it open
 js/doc-tools.js     the doc editor's toolbar, "/" menu, find & replace and dialogs
 tools/editor        source for vendor/editor.bundle.js (only needed to change the editor: `npm install && npm run build`)
