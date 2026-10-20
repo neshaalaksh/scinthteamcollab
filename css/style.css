@@ -183,24 +183,26 @@ legend { font-size: 13px; color: var(--muted); padding: 0 4px; }
 .week-day b { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .week-day.is-today { outline: 2px solid var(--accent); }
 .chip-btn { text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* reminder bar (bottom of Home) */
-.reminder-bar { margin-top: 18px; }
-.reminder-add { display: flex; flex-wrap: wrap; gap: 8px; }
-.reminder-add .grow { flex: 1 1 240px; }
-.reminder-add select.input { max-width: 200px; color: var(--ink); }
-.reminder-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
-.reminder-item {
-  position: relative; display: flex; flex-direction: column; gap: 2px; padding: 9px 36px 9px 12px;
-  background: var(--bg); border: 1px solid var(--line-soft); border-left: 3px solid var(--line); border-radius: 8px; min-width: 0;
+/* reminders card (Home): rows like "My tasks" */
+.reminder-add { display: flex; flex-direction: column; gap: 6px; }
+.reminder-add-row { display: flex; gap: 8px; }
+.reminder-add-row .btn { min-height: 38px; }
+.reminder-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.reminder-opts[hidden] { display: none; }
+.reminder-opts .input { flex: 1 1 120px; min-height: 34px; padding: 5px 8px; font-size: 14px; color: var(--ink); }
+.reminder-list { display: flex; flex-direction: column; }
+.reminder-row { display: flex; align-items: center; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--line-soft); }
+.reminder-row:last-child { border-bottom: 0; }
+.reminder-row input { flex: none; margin: 0; }
+.reminder-row .grow { display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.reminder-who { font-size: 12px; color: var(--muted); }
+.reminder-row.is-done .reminder-text { text-decoration: line-through; color: var(--muted); }
+.reminder-del { flex: none; width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; }
+.reminder-del:hover { background: var(--sunk); color: var(--bad); }
+@media (hover: hover) {
+  .reminder-del { opacity: 0; }
+  .reminder-row:hover .reminder-del, .reminder-del:focus-visible { opacity: 1; }
 }
-.reminder-item.due-today { border-left-color: var(--warn); }
-.reminder-item.overdue { border-left-color: var(--bad); }
-.reminder-item .check { align-items: flex-start; overflow-wrap: anywhere; }
-.reminder-item .check input { margin-top: 4px; flex: none; }
-.reminder-item.is-done .check span { text-decoration: line-through; color: var(--muted); }
-.reminder-meta { padding-left: 24px; }
-.reminder-del { position: absolute; top: 6px; right: 6px; opacity: 0.6; }
-.reminder-del:hover, .reminder-del:focus-visible { opacity: 1; }
 .toast.reminder { background: var(--accent); color: var(--accent-ink); font-weight: 700; cursor: pointer; }
 .pin { display: flex; gap: 10px; align-items: center; padding: 7px 0; color: var(--ink); text-decoration: none; }
 .pin:hover { color: var(--accent); }
@@ -447,8 +449,6 @@ a.drive-row:hover, .drive-row.link:hover { background: var(--sunk); }
   .view { padding: 16px 16px 40px; }
   .home-grid, .history-grid, .team-grid { grid-template-columns: minmax(0, 1fr); }
   .span-2 { grid-column: auto; }
-  .reminder-add .input { flex: 1 1 130px; max-width: none; }
-  .reminder-add .grow { flex-basis: 100%; }
   .week-strip { grid-template-columns: repeat(var(--days), minmax(120px, 1fr)); overflow-x: auto; }
   .docs-layout { grid-template-columns: minmax(0, 1fr); margin: -16px -16px -40px; }
   .doc-tree { border-right: 0; border-bottom: 1px solid var(--line); }

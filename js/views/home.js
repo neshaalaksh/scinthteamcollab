@@ -78,8 +78,8 @@ export default {
           <div class="card-head"><h2>Pinned</h2></div>
           ${pinned.map((p) => `<a class="pin" href="${esc(p.href)}"${p.ext ? ' target="_blank" rel="noopener"' : ''}><span class="kind kind-${p.kind.toLowerCase()}">${p.kind}</span>${esc(p.name)}</a>`).join('') || '<p class="muted">Pin docs and sheets to share them with the team here.</p>'}
         </section>
+        ${S.me.role === 'guest' ? '' : '<section class="card" id="reminder-bar" aria-label="Reminders"></section>'}
       </div>
-      ${S.me.role === 'guest' ? '' : '<section class="card reminder-bar" id="reminder-bar" aria-label="Reminders"></section>'}
 `;
 
     const bar = el.querySelector('#reminder-bar');

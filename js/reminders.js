@@ -1,4 +1,4 @@
-// The reminder bar at the bottom of Home, and the pop-up when a reminder's time comes.
+// The Reminders card on Home (last on the page), and the pop-up when a reminder's time comes.
 // A reminder is for you or a teammate; only the person who set it and the person it's for see it.
 
 import { S, act, person } from './state.js';
@@ -38,17 +38,18 @@ function itemHtml(r) {
   const me = S.me.email;
   const when = whenLabel(r);
   const who = r.forEmail !== me ? `for ${person(r.forEmail)?.name}` : r.createdBy && r.createdBy !== me ? `from ${person(r.createdBy)?.name}` : '';
-  const meta = [when.text && `<span class="due ${when.cls}">${esc(when.text)}</span>`, who && `<span>${esc(who)}</span>`].filter(Boolean).join(' · ');
   return `
-    <div class="reminder-item ${r.doneAt ? 'is-done' : ''} ${when.cls}">
-      <label class="check"><input type="checkbox" data-rem-done="${esc(r.id)}" ${r.doneAt ? 'checked' : ''}
-        aria-label="Done: ${esc(r.text)}"> <span>${esc(r.text)}</span></label>
-      ${meta ? `<div class="reminder-meta small muted">${meta}</div>` : ''}
-      <button class="icon-btn small reminder-del" data-rem-del="${esc(r.id)}" title="Delete reminder" aria-label="Delete reminder: ${esc(r.text)}">×</button>
+    <div class="reminder-row ${r.doneAt ? 'is-done' : ''}">
+      <input type="checkbox" data-rem-done="${esc(r.id)}" ${r.doneAt ? 'checked' : ''} aria-label="Done: ${esc(r.text)}">
+      <span class="grow"><span class="reminder-text">${esc(r.text)}</span>${who ? `<span class="reminder-who">${esc(who)}</span>` : ''}</span>
+      ${when.text ? `<span class="due ${when.cls}">${esc(when.text)}</span>` : ''}
+      <button class="reminder-del" data-rem-del="${esc(r.id)}" title="Delete reminder" aria-label="Delete reminder: ${esc(r.text)}">×</button>
     </div>`;
 }
 
-// Draws the bar into `el` (a <section>). Redraws only itself after each change.
+let showOptions = false;   // the date, time and "for" fields under the box
+
+// Draws the Reminders card into `el` (a <section>). Redraws only itself after each change.
 export function renderReminderBar(el) {
   const me = S.me.email;
   const teammates = S.team.filter((p) => p.role !== 'guest' && p.email !== me);
@@ -60,20 +61,31 @@ export function renderReminderBar(el) {
   el.innerHTML = `
     <div class="card-head">
       <h2>Reminders</h2>
-      <span class="small muted">${open.length ? `${open.length} to do${late ? ` · <b class="bad">${late} overdue</b>` : ''}` : ''}</span>
+      <span class="small muted">${open.length ? `${open.length} to do${late ? ` · <b class="bad">${late} late</b>` : ''}` : ''}</span>
     </div>
     <form class="reminder-add" autocomplete="off">
-      <input class="input grow" name="text" maxlength="300" placeholder="Remind me to…" aria-label="Reminder" required>
-      <input class="input" type="date" name="date" aria-label="Date (optional)" title="Date (optional)">
-      <input class="input" type="time" name="time" aria-label="Time (optional)" title="Time (optional)">
-      ${teammates.length ? `<select class="input" name="for" aria-label="Who it's for" title="Who it's for">
-        <option value="${esc(me)}">For me</option>
-        ${teammates.map((p) => `<option value="${esc(p.email)}">For ${esc(p.name)}</option>`).join('')}
-      </select>` : ''}
-      <button class="btn primary" type="submit">Add</button>
+      <div class="reminder-add-row">
+        <input class="input grow" name="text" maxlength="300" placeholder="Remind me to…" aria-label="Reminder" required>
+        <button class="btn primary small" type="submit">Add</button>
+      </div>
+      <div class="reminder-opts" ${showOptions ? '' : 'hidden'}>
+        <input class="input" type="date" name="date" aria-label="Date (optional)" title="Date (optional)">
+        <input class="input" type="time" name="time" aria-label="Time (optional)" title="Time (optional)">
+        ${teammates.length ? `<select class="input" name="for" aria-label="Who it's for" title="Who it's for">
+          <option value="${esc(me)}">For me</option>
+          ${teammates.map((p) => `<option value="${esc(p.email)}">For ${esc(p.name)}</option>`).join('')}
+        </select>` : ''}
+      </div>
+      <button class="link-btn small" type="button" data-rem-opts>${showOptions ? 'Hide date, time and person' : `Add a date, time${teammates.length ? ' or teammate' : ''}`}</button>
     </form>
-    ${items.length ? `<div class="reminder-list">${shown.map(itemHtml).join('')}</div>` : '<p class="muted">No reminders. Add one above: it can have a date and time, and can be for a teammate.</p>'}
+    ${items.length ? `<div class="reminder-list">${shown.map(itemHtml).join('')}</div>` : '<p class="muted">No reminders yet.</p>'}
     ${items.length > SHOW ? `<button class="link-btn small" data-rem-more>${showAll ? 'Show fewer' : `Show all ${items.length}`}</button>` : ''}`;
+
+  $('[data-rem-opts]', el).onclick = () => {
+    showOptions = !showOptions;
+    $('.reminder-opts', el).hidden = !showOptions;
+    $('[data-rem-opts]', el).textContent = showOptions ? 'Hide date, time and person' : `Add a date, time${teammates.length ? ' or teammate' : ''}`;
+  };
 
   const form = $('.reminder-add', el);
   const text = form.elements.text;
@@ -104,7 +116,7 @@ export function renderReminderBar(el) {
 
   $$('[data-rem-done]', el).forEach((box) => box.onchange = async () => {
     const id = box.dataset.remDone;
-    box.closest('.reminder-item').classList.toggle('is-done', box.checked);
+    box.closest('.reminder-row').classList.toggle('is-done', box.checked);
     const saved = await act('reminders.save', { id, fields: { done: box.checked } });
     if (saved) S.reminders = S.reminders.map((r) => (r.id === id ? saved : r));
     renderReminderBar(el);
