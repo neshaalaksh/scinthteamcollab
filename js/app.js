@@ -3,6 +3,7 @@ import { call, initAuth, getSession, setSession, signOut, signInWithGoogle, setA
 import { S, loadAll, setSpace, can, allowedViews } from './state.js';
 import { DEMO_PEOPLE, resetDemo } from './demo.js';
 import { $, $$, esc, avatar, isModalOpen, toast } from './util.js';
+import { remindDue } from './reminders.js';
 import home from './views/home.js';
 import tasks from './views/tasks.js';
 import calendar from './views/calendar.js';
@@ -166,6 +167,7 @@ async function start() {
   renderChrome();
   watch();
   await render();
+  remindDue();
 }
 
 // ---- keep in sync with teammates
@@ -178,6 +180,7 @@ async function refresh() {
   renderChrome();
   const busy = isModalOpen() || current?.view.busy?.() || document.activeElement?.matches('input, textarea, select, [contenteditable]');
   if (!busy) await render();
+  remindDue();
 }
 
 let polling = false;
@@ -204,6 +207,7 @@ function watch() {
   watching = true;
   live = watchChanges(() => { if (!document.hidden) refresh().catch(() => {}); });
   if (!live) setInterval(poll, CONFIG.pollSeconds * 1000);
+  setInterval(remindDue, 20000);   // reminders pop up when their time comes, on any page
 }
 document.addEventListener('visibilitychange', poll);
 

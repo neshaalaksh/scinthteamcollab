@@ -82,6 +82,13 @@ const eventOut = (e) => ({
   duration: e.duration_min || 0, notes: e.notes, client: str(e.client), attendees: e.attendees || [],
   space: e.space || MAIN_SPACE, createdBy: str(e.created_by), createdAt: e.created_at,
 });
+// A reminder: date '' = no date, time '' = any time that day. forEmail = who it is for.
+const reminderOut = (r) => ({
+  id: r.id, text: r.text, date: str(r.date), time: r.time ? String(r.time).slice(0, 5) : '',
+  forEmail: r.for_email, createdBy: str(r.created_by), createdAt: r.created_at, doneAt: str(r.done_at),
+});
+// Ticked-off reminders stay on Home for the rest of the day (to undo a mis-tick), so load a couple of days of them.
+const REMINDERS_DONE_SINCE = () => new Date(Date.now() - 2 * 86400000).toISOString();
 const activityOut = (a) => ({
   at: a.at, email: a.email, action: a.action, type: a.type, itemId: str(a.item_id),
   title: str(a.title), space: str(a.space), detail: str(a.detail),
@@ -151,7 +158,7 @@ const ACTIONS = {
     if (!meRow) fail(`You are not on this team yet. Ask the owner to add ${me}.`, 'NOT_MEMBER');
     sb.rpc('touch_last_active').then(() => {}, () => {});
     // The database returns only what this person may see (guests get no tasks, docs or sheets, and so on).
-    const [team, spaces, tasks, routines, docs, sheets, files, calls, events] = await Promise.all([
+    const [team, spaces, tasks, routines, docs, sheets, files, calls, events, reminders] = await Promise.all([
       sb.from('team').select('*').order('name'),
       sb.from('spaces').select('*').order('name'),
       allRows((a, b) => sb.from('tasks').select('*').order('id').range(a, b)),
@@ -161,6 +168,10 @@ const ACTIONS = {
       allRows((a, b) => sb.from('drive_files').select('*').order('uploaded_at', { ascending: false }).order('id').range(a, b)),
       allRows((a, b) => sb.from('call_requests').select('*').order('created_at', { ascending: false }).order('id').range(a, b)),
       allRows((a, b) => sb.from('events').select('*').order('date').order('id').range(a, b)),
+      // Your own reminders and the ones you set for others. Before the reminders migration is run
+      // the table isn't there: carry on without them rather than not loading at all.
+      allRows((a, b) => sb.from('reminders').select('*').or(`done_at.is.null,done_at.gte."${REMINDERS_DONE_SINCE()}"`)
+        .order('created_at').order('id').range(a, b)).catch((err) => { console.warn('Reminders not loaded:', err.message); return []; }),
     ]);
     return {
       me: personOut(meRow),
@@ -173,6 +184,7 @@ const ACTIONS = {
       files: files.map(fileOut),
       calls: calls.map(callOut),
       events: events.map(eventOut),
+      reminders: reminders.map(reminderOut),
     };
   },
 
@@ -375,6 +387,28 @@ const ACTIONS = {
 
   async 'events.delete'(me, d) {
     check(await sb.from('events').delete().eq('id', d.id).select('id'), 'Only the person who added it, or an admin, can delete this.');
+    return { id: d.id };
+  },
+
+  // ---- reminders (Home): the database lets the person it's for only tick it off
+  async 'reminders.save'(me, d) {
+    const f = d.fields || {};
+    const row = {};
+    if (f.text !== undefined) row.text = String(f.text || '').trim().slice(0, 300);
+    if (f.date !== undefined) row.date = f.date || null;
+    if (f.time !== undefined) row.time = f.time || null;
+    if (f.forEmail !== undefined) row.for_email = String(f.forEmail || me).trim().toLowerCase();
+    if (f.done !== undefined) row.done_at = f.done ? new Date().toISOString() : null;
+    if (!d.id) {
+      if (!row.text) fail('Write what to be reminded about.');
+      return reminderOut(one(check(await sb.from('reminders').insert(row).select())));
+    }
+    if (row.text === '') fail('Write what to be reminded about.');
+    return reminderOut(one(check(await sb.from('reminders').update(row).eq('id', d.id).select(), 'That reminder is gone. It may have been deleted.')));
+  },
+
+  async 'reminders.delete'(me, d) {
+    check(await sb.from('reminders').delete().eq('id', d.id).select('id'), 'That reminder is gone. It may have been deleted.');
     return { id: d.id };
   },
 
